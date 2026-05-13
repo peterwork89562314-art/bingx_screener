@@ -1,0 +1,13 @@
+# API 金鑰（絕對不能上傳）
+config.json
+bingxKey.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# 系統
+.DS_Store
+Thumbs.db

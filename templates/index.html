@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BingX MA + Fib 篩選器</title>
+<style>
+:root{
+  --bg:#0d0f14;--bg2:#141720;--bg3:#1c2030;--bg4:#242840;
+  --b:rgba(255,255,255,.07);--b2:rgba(255,255,255,.15);
+  --t:#e8eaf0;--t2:#8b90a0;--t3:#4a4f60;
+  --g:#26a69a;--r:#ef5350;
+  --gd:rgba(38,166,154,.13);--rd:rgba(239,83,80,.13);
+  --ac:#4f7fff;--acd:rgba(79,127,255,.14);
+  --gold:#f59e0b;
+  --rad:9px;--rads:5px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;font-size:14px;}
+
+.hdr{background:var(--bg2);border-bottom:1px solid var(--b);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:10px;}
+.ldot{width:9px;height:9px;border-radius:50%;background:var(--ac);}
+.logo h1{font-size:15px;font-weight:600;}
+.logo sub{font-size:11px;color:var(--t3);display:block;margin-top:1px;}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t3);}
+.livdot{width:7px;height:7px;border-radius:50%;background:var(--t3);}
+.livdot.on{background:var(--g);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+.cbar{background:var(--bg2);border-bottom:1px solid var(--b);padding:12px 20px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;}
+.cg{display:flex;flex-direction:column;gap:5px;}
+.cg label{font-size:10px;color:var(--t3);letter-spacing:.07em;text-transform:uppercase;}
+.cg select,.cg input{background:var(--bg3);border:1px solid var(--b2);border-radius:var(--rads);color:var(--t);font-size:13px;padding:6px 9px;outline:none;height:32px;transition:border-color .15s;}
+.cg select:focus,.cg input:focus{border-color:var(--ac);}
+.cg input{width:80px;}
+.ivg{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.ivg input{width:68px;}
+.chips{display:flex;flex-wrap:wrap;gap:4px;}
+.chip{font-size:11px;padding:3px 9px;background:var(--bg3);border:1px solid var(--b);border-radius:20px;color:var(--t2);cursor:pointer;user-select:none;transition:all .12s;}
+.chip:hover{border-color:var(--b2);color:var(--t);}
+.chip.on{background:var(--acd);border-color:var(--ac);color:var(--ac);}
+
+.fbar{background:var(--bg2);border-bottom:1px solid var(--b);padding:10px 20px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;}
+.fmode{display:flex;gap:6px;flex-wrap:wrap;}
+.fmbtn{font-size:12px;padding:4px 12px;background:var(--bg3);border:1px solid var(--b);border-radius:20px;color:var(--t2);cursor:pointer;transition:all .12s;}
+.fmbtn:hover{border-color:var(--b2);color:var(--t);}
+.fmbtn.on{background:var(--acd);border-color:var(--ac);color:var(--ac);}
+.fval-wrap{display:flex;align-items:center;gap:6px;}
+.fval-wrap input{width:70px;}
+.fval-wrap span{font-size:12px;color:var(--t3);}
+.fib-toggle{display:flex;align-items:center;gap:8px;padding:5px 14px;background:var(--bg3);border:1px solid var(--b);border-radius:20px;cursor:pointer;user-select:none;transition:all .15s;font-size:12px;font-weight:500;color:var(--t2);}
+.fib-toggle.on{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.45);color:var(--gold);}
+
+.bscan{height:32px;padding:0 20px;background:var(--ac);color:#fff;border:none;border-radius:var(--rads);font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s,transform .1s;}
+.bscan:hover{opacity:.88;}.bscan:active{transform:scale(.97);}.bscan:disabled{opacity:.4;cursor:not-allowed;}
+
+.sbar{padding:9px 20px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--b);background:var(--bg2);font-size:12px;color:var(--t2);}
+.sv{font-weight:600;font-size:14px;}.sv.g{color:var(--g);}.sv.r{color:var(--r);}
+.pbar{flex:1;max-width:140px;height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;}
+.pfill{height:100%;background:var(--g);border-radius:2px;transition:width .5s;}
+.fib-badge{font-size:11px;padding:2px 9px;border-radius:20px;background:rgba(245,158,11,.12);color:var(--gold);border:1px solid rgba(245,158,11,.3);font-weight:600;}
+
+.tabs{display:flex;padding:0 20px;background:var(--bg2);border-bottom:1px solid var(--b);}
+.tab{padding:9px 16px;font-size:13px;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .12s;}
+.tab:hover{color:var(--t);}.tab.on{color:var(--t);border-bottom-color:var(--ac);font-weight:500;}
+.tc{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--bg4);margin-left:4px;}
+
+.main{padding:16px 20px;}
+.slbl{font-size:10px;color:var(--t3);letter-spacing:.07em;text-transform:uppercase;margin:16px 0 10px;display:flex;align-items:center;gap:8px;}
+.slbl:first-child{margin-top:0;}.slbl::after{content:'';flex:1;height:1px;background:var(--b);}
+.sbadge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;}
+.sg{background:var(--gd);color:var(--g);}.sr{background:var(--rd);color:var(--r);}
+.sortrow{display:flex;align-items:center;gap:6px;margin-bottom:12px;}
+.sortlbl{font-size:11px;color:var(--t3);}
+.sbtn{font-size:11px;padding:3px 10px;background:var(--bg3);border:1px solid var(--b);border-radius:20px;color:var(--t2);cursor:pointer;transition:all .12s;}
+.sbtn.on{background:var(--acd);border-color:var(--ac);color:var(--ac);}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-bottom:6px;}
+.card{background:var(--bg2);border:1px solid var(--b);border-radius:var(--rad);overflow:hidden;cursor:pointer;transition:border-color .12s,background .12s;}
+.card:hover{border-color:var(--b2);background:var(--bg3);}
+.card.above{border-top:2px solid var(--g);}
+.card.below{border-top:2px solid var(--r);}
+.card.fibcard{border-top:2px solid var(--gold);box-shadow:0 0 0 1px rgba(245,158,11,.15);}
+.chard{padding:8px 10px 2px;display:flex;justify-content:space-between;align-items:baseline;}
+.csym{font-size:12px;font-weight:600;}
+.cchg{font-size:11px;font-weight:500;}
+.cchg.pos{color:var(--g);}.cchg.neg{color:var(--r);}
+.cwrap{height:82px;background:var(--bg);}
+.cfoot{padding:3px 10px 8px;display:flex;justify-content:space-between;align-items:center;gap:4px;}
+.cprc{font-size:11px;color:var(--t2);}
+.cma{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;}
+.cma.above{background:var(--gd);color:var(--g);}.cma.below{background:var(--rd);color:var(--r);}
+.cfib{font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;background:rgba(245,158,11,.12);color:var(--gold);}
+.ctag{font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;}
+
+.empty{padding:2.5rem;text-align:center;color:var(--t3);}
+.eico{font-size:32px;opacity:.4;margin-bottom:10px;}
+.spwrap{display:flex;flex-direction:column;align-items:center;gap:12px;padding:2.5rem;color:var(--t2);}
+.spinner{width:26px;height:26px;border:2px solid var(--b2);border-top-color:var(--ac);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.errbox{background:rgba(239,83,80,.08);border:1px solid rgba(239,83,80,.3);border-radius:var(--rads);padding:10px 14px;color:var(--r);font-size:13px;margin-bottom:14px;}
+
+.movl{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;align-items:center;justify-content:center;}
+.movl.open{display:flex;}
+.modal{background:var(--bg2);border:1px solid var(--b2);border-radius:14px;width:min(97vw,1260px);max-height:95vh;display:flex;flex-direction:column;overflow:hidden;}
+.mhdr{padding:12px 16px;border-bottom:1px solid var(--b);display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.mnav{background:var(--bg3);border:1px solid var(--b2);color:var(--t2);width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;transition:all .12s;}
+.mnav:hover{color:var(--t);background:var(--bg4);}.mnav:disabled{opacity:.3;cursor:not-allowed;}
+.mtinfo{flex:1;min-width:0;}
+.mtitle{font-size:16px;font-weight:600;}
+.msub{font-size:11px;color:var(--t3);margin-top:2px;}
+.mhint{font-size:11px;color:var(--t3);white-space:nowrap;}
+.iv-tabs{display:flex;gap:4px;flex-shrink:0;}
+.iv-tab{font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;border:1px solid var(--b2);background:var(--bg3);color:var(--t2);cursor:pointer;transition:all .12s;}
+.iv-tab:hover{color:var(--t);border-color:var(--t2);}
+.iv-tab.on{background:var(--acd);border-color:var(--ac);color:var(--ac);}
+.mclose{background:var(--bg4);border:none;color:var(--t2);font-size:18px;width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.mclose:hover{color:var(--t);}
+.mbody{padding:12px 16px 16px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:10px;}
+.mchw{position:relative;width:100%;height:calc(min(95vh,860px) - 210px);min-height:400px;overflow:hidden;cursor:grab;user-select:none;}
+.mchw.grabbing{cursor:grabbing;}
+.mchw-inner{position:absolute;top:0;left:0;transform-origin:0 0;}
+.zoom-hint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--t3);pointer-events:none;background:rgba(13,15,20,.7);padding:3px 10px;border-radius:20px;}
+.zoom-btns{position:absolute;top:8px;right:8px;display:flex;gap:4px;}
+.zoom-btn{background:var(--bg3);border:1px solid var(--b2);color:var(--t2);width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .12s;}
+.zoom-btn:hover{color:var(--t);background:var(--bg4);}
+.mstats{display:flex;gap:12px;flex-wrap:wrap;padding:10px 14px;background:var(--bg3);border-radius:var(--rads);}
+.order-panel{background:var(--bg3);border:1px solid var(--b2);border-radius:var(--rad);padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
+.op-title{font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.05em;display:flex;align-items:center;gap:6px;}
+.op-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;}
+.op-row{display:flex;flex-direction:column;gap:4px;}
+.op-lbl{font-size:10px;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;}
+.op-lbl span{font-size:10px;color:var(--t2);}
+.op-input-wrap{display:flex;align-items:center;gap:5px;}
+.op-input{flex:1;background:var(--bg4);border:1px solid var(--b2);border-radius:var(--rads);color:var(--t);font-size:12px;padding:5px 8px;outline:none;transition:border-color .15s;}
+.op-input:focus{border-color:var(--ac);}
+.op-pct{width:60px;background:var(--bg4);border:1px solid var(--b2);border-radius:var(--rads);color:var(--t2);font-size:12px;padding:5px 6px;outline:none;}
+.op-result{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px;background:var(--bg);border-radius:var(--rads);font-size:11px;}
+.op-res-item{display:flex;gap:4px;align-items:center;}
+.op-res-lbl{color:var(--t3);}
+.op-res-val{font-weight:600;}
+.op-btn{align-self:flex-start;padding:6px 20px;background:var(--g);border:none;border-radius:var(--rads);color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s;}
+.op-btn:hover{opacity:.85;}
+.ii{display:flex;flex-direction:column;gap:3px;}
+.il{font-size:11px;color:var(--t3);}
+.iv{font-size:14px;font-weight:600;}
+.iv.g{color:var(--g);}.iv.r{color:var(--r);}.iv.gold{color:var(--gold);}
+.fleg-wrap{display:flex;flex-wrap:wrap;gap:4px 10px;padding:8px 14px;background:var(--bg3);border-radius:var(--rads);border:1px solid rgba(245,158,11,.18);}
+.fleg{display:flex;align-items:center;gap:4px;font-size:10.5px;}
+.fleg-sw{width:16px;height:2px;border-radius:1px;flex-shrink:0;}
+.mload{display:flex;align-items:center;justify-content:center;height:100%;color:var(--t2);gap:10px;}
+
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="logo"><div class="ldot"></div>
+    <div><h1>BingX 合約 MA + Fib 篩選器</h1><sub>永續合約 · 均線 · Fibonacci 底底高（多組）</sub></div>
+  </div>
+  <div class="live"><div class="livdot" id="livDot"></div><span id="livTxt">離線</span></div>
+</div>
+
+<div class="cbar">
+  <div class="cg">
+    <label>時間週期</label>
+    <div class="ivg">
+      <input type="text" id="ivInput" value="15m" placeholder="3m,1h...">
+      <div class="chips" id="chips">
+        <span class="chip" data-v="3m">3m</span>
+        <span class="chip" data-v="5m">5m</span>
+        <span class="chip on" data-v="15m">15m</span>
+        <span class="chip" data-v="30m">30m</span>
+        <span class="chip" data-v="1h">1h</span>
+        <span class="chip" data-v="4h">4h</span>
+        <span class="chip" data-v="1d">1d</span>
+      </div>
+    </div>
+  </div>
+  <div class="cg"><label>MA 週期</label><input type="number" id="maPeriod" value="55" min="2" max="200"></div>
+  <div class="cg"><label>MA 類型</label>
+    <select id="maType"><option value="SMA">SMA</option><option value="EMA">EMA</option></select>
+  </div>
+  <div class="cg"><label>顯示數量</label><input type="number" id="limit" value="40" min="5" max="200"></div>
+  <button class="bscan" id="scanBtn" onclick="startScan()">▶ 開始掃描</button>
+</div>
+
+<div class="fbar">
+  <div class="cg">
+    <label>篩選模式</label>
+    <div class="fmode">
+      <button class="fmbtn on" data-f="volume"    onclick="setFilter('volume')">📊 成交量</button>
+      <button class="fmbtn"    data-f="volspike"  onclick="setFilter('volspike')">🔥 異常波動</button>
+      <button class="fmbtn"    data-f="volchange" onclick="setFilter('volchange')">📈 日量變化%</button>
+      <button class="fmbtn"    data-f="random"    onclick="setFilter('random')">🎲 隨機</button>
+    </div>
+  </div>
+  <div class="cg" id="fvalGroup" style="display:none">
+    <label id="fvalLabel">門檻值</label>
+    <div class="fval-wrap">
+      <input type="number" id="fvalInput" value="50" step="1">
+      <span id="fvalUnit">%</span>
+    </div>
+    <div id="fvalHint" style="font-size:11px;color:var(--t3);margin-top:3px"></div>
+  </div>
+  <div class="cg">
+    <label>Fibonacci 過濾</label>
+    <div class="fib-toggle on" id="fibToggle" onclick="toggleFib()">
+      <span>📐</span><span id="fibTxt">開啟（找所有底底高）</span>
+    </div>
+  </div>
+</div>
+
+<div class="sbar" id="sbar" style="display:none">
+  <span class="sv g" id="sAb">0</span><span>MA上</span>
+  <span style="color:var(--b2)">|</span>
+  <span class="sv r" id="sBl">0</span><span>MA下</span>
+  <span style="color:var(--b2)">|</span>
+  <span>共<span class="sv" id="sTot" style="margin:0 3px">0</span>個</span>
+  <div class="pbar"><div class="pfill" id="pFill" style="width:50%"></div></div>
+  <span style="font-size:11px;color:var(--t3)" id="pPct"></span>
+  <span id="fibStatus" class="fib-badge" style="display:none">📐 Fib 底底高</span>
+  <span style="margin-left:auto;font-size:11px;color:var(--t3)" id="lastT"></span>
+</div>
+
+<div class="tabs" id="tabs" style="display:none">
+  <div class="tab on" id="tab-all"   onclick="switchTab('all')">全部 <span class="tc" id="cnt-all">0</span></div>
+  <div class="tab"    id="tab-above" onclick="switchTab('above')">MA上 <span class="tc" id="cnt-ab" style="background:var(--gd);color:var(--g)">0</span></div>
+  <div class="tab"    id="tab-below" onclick="switchTab('below')">MA下 <span class="tc" id="cnt-bl" style="background:var(--rd);color:var(--r)">0</span></div>
+</div>
+
+<div class="main" id="main">
+  <div class="empty"><div class="eico">📐</div>
+    <div>設定參數後點擊「開始掃描」</div>
+    <div style="font-size:12px;margin-top:6px;color:var(--t3)">Fib 模式：找所有底底高組合，每組各畫一次 Fib；遇連續兩根 MA 下停止往前搜尋</div>
+  </div>
+</div>
+
+<div class="movl" id="movl" onclick="closeMod(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="mhdr">
+      <button class="mnav" id="mPrev" onclick="navMod(-1)">‹</button>
+      <div class="mtinfo">
+        <div class="mtitle" id="mTitle">-</div>
+        <div class="msub"   id="mSub">-</div>
+      </div>
+      <div class="iv-tabs" id="ivTabs"></div>
+      <span class="mhint" id="mHint"></span>
+      <button class="mnav" id="mNext" onclick="navMod(1)">›</button>
+      <button class="mclose" onclick="closeMod()">×</button>
+    </div>
+    <div class="mbody">
+      <div class="mchw" id="mChW">
+        <div class="mchw-inner" id="mChWInner"><div class="mload"><div class="spinner"></div><span>載入K線...</span></div></div>
+        <!-- 十字線 overlay -->
+        <div id="mCross" style="display:none;position:absolute;inset:0;pointer-events:none;z-index:20">
+          <div id="mCrossH" style="position:absolute;left:0;right:0;height:0;border-top:1px dashed rgba(255,255,255,.35)"></div>
+          <div id="mCrossPrice" style="position:absolute;right:0;background:#4f7fff;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:3px 0 0 3px;transform:translateY(-50%);white-space:nowrap;min-width:70px;text-align:right"></div>
+        </div>
+        <div class="zoom-btns">
+          <button class="zoom-btn" onclick="zoomChart(1.25)" title="放大">+</button>
+          <button class="zoom-btn" onclick="zoomChart(0.8)"  title="縮小">−</button>
+          <button class="zoom-btn" onclick="resetZoom()"     title="重置">⊡</button>
+        </div>
+        <div class="zoom-hint">滾輪縮放 · 拖曳平移</div>
+      </div>
+      <div class="mstats"    id="mStats"></div>
+      <div class="fleg-wrap" id="mFibLeg" style="display:none"></div>
+      <div class="order-panel" id="orderPanel" style="display:none">
+        <div class="op-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>📋 開單規劃</span>
+          <div style="display:flex;gap:0;border:1px solid var(--b2);border-radius:var(--rads);overflow:hidden">
+            <button id="opTypeLmt" onclick="setOrderType('LIMIT')"
+              style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--ac);color:#fff">限價</button>
+            <button id="opTypeMkt" onclick="setOrderType('MARKET')"
+              style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--bg4);color:var(--t2)">市價</button>
+          </div>
+        </div>
+        <div class="op-grid">
+          <div class="op-row" id="opEntryRow">
+            <div class="op-lbl">開倉點位 <span id="opEntryLbl" style="color:var(--gold)"></span></div>
+            <div class="op-input-wrap">
+              <input class="op-input" id="opEntry" type="number" step="any" oninput="calcOrder()">
+            </div>
+          </div>
+          <div class="op-row">
+            <div class="op-lbl">停損點位 <span id="opSlLbl" style="color:var(--r)"></span></div>
+            <div class="op-input-wrap">
+              <input class="op-input" id="opSl" type="number" step="any" oninput="calcOrder()">
+            </div>
+          </div>
+          <div class="op-row">
+            <div class="op-lbl">止盈1 <span id="opTp1Lbl" style="color:var(--g)"></span></div>
+            <div class="op-input-wrap">
+              <input class="op-input" id="opTp1" type="number" step="any" oninput="calcOrder()">
+              <input class="op-pct" id="opTp1Pct" type="number" value="25" min="1" max="100" oninput="calcOrder()">
+              <span style="font-size:11px;color:var(--t3)">%</span>
+            </div>
+          </div>
+          <div class="op-row">
+            <div class="op-lbl">止盈2 <span id="opTp2Lbl" style="color:var(--g)"></span></div>
+            <div class="op-input-wrap">
+              <input class="op-input" id="opTp2" type="number" step="any" oninput="calcOrder()">
+              <input class="op-pct" id="opTp2Pct" type="number" value="25" min="1" max="100" oninput="calcOrder()">
+              <span style="font-size:11px;color:var(--t3)">%</span>
+            </div>
+          </div>
+        </div>
+        <div class="op-result" id="opResult"></div>
+
+        <!-- 下單區 -->
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:10px;color:var(--t3);text-transform:uppercase">數量（張）</label>
+            <input class="op-input" id="opQty" type="number" step="any" min="0" placeholder="0.1" style="width:90px">
+          </div>
+          <button class="op-btn" id="opSubmitBtn" onclick="submitOrder()" style="margin-top:14px">📤 送出下單</button>
+          <button class="op-btn" onclick="checkBalance()" style="margin-top:14px;background:var(--bg4);color:var(--t2);border:1px solid var(--b2)">💰 查餘額</button>
+          <span id="opBalanceInfo" style="font-size:12px;color:var(--gold)"></span>
+        </div>
+
+        <!-- API 金鑰設定 -->
+        <details style="margin-top:4px">
+          <summary style="font-size:11px;color:var(--t3);cursor:pointer;user-select:none">⚙ API 金鑰設定</summary>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <label style="font-size:10px;color:var(--t3)">API KEY</label>
+                <input class="op-input" id="cfgKey" type="text" placeholder="貼上 API Key" style="width:240px">
+              </div>
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <label style="font-size:10px;color:var(--t3)">SECRET</label>
+                <input class="op-input" id="cfgSecret" type="password" placeholder="貼上 Secret" style="width:240px">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:14px">
+                <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+                  <input type="checkbox" id="cfgDemo" checked> 模擬盤（VST）
+                </label>
+                <button class="op-btn" onclick="saveApiConfig()" style="background:var(--ac)">儲存</button>
+                <span id="cfgStatus" style="font-size:11px;color:var(--g)"></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- 下單回應 -->
+        <div id="opOrderResult" style="display:none;padding:8px 10px;background:var(--bg);border-radius:var(--rads);font-size:11px;color:var(--t2);white-space:pre-wrap;max-height:140px;overflow-y:auto"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Fib 定義（對應 server.py）────────────────────────────────────────────────
+// 0=fib0(底), 1=fib1(頂), 其他全部往上超過 fib1 延伸
+const FIB_DEF = [
+  [0.0,   "#555555"],[1.0,   "#555555"],
+  [1.46,  "#ef5350"],[1.73,  "#f59e0b"],
+  [6.92,  "#26a69a"],[12.11, "#26a69a"],[17.3,  "#26a69a"],[22.49, "#26a69a"],
+  [27.68, "#26a69a"],[32.87, "#26a69a"],[38.06, "#26a69a"],[43.25, "#26a69a"],
+  [48.44, "#26a69a"],[53.63, "#26a69a"],[58.82, "#26a69a"],[64.01, "#26a69a"],
+  [69.2,  "#26a69a"],[74.39, "#26a69a"],[79.58, "#26a69a"],[84.77, "#26a69a"],
+  [89.96, "#26a69a"],[95.15, "#26a69a"],[100.34,"#26a69a"],[105.53,"#26a69a"],
+].sort((a,b)=>a[0]-b[0]);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let allResults=[], visList=[];
+let curTab='all', curSort='volume', curFilter='volume', useFib=true;
+let modIdx=-1, modOpen=false;
+let modOrigIv='', modCurIv='';   // 彈窗當前顯示的時間級別
+
+// 各級別對應的 4 倍時間級別
+const IV_4X = {
+  '1m':'5m','3m':'15m','5m':'15m','15m':'1h',
+  '30m':'2h','1h':'4h','2h':'8h','4h':'1d',
+  '6h':'1d','8h':'3d','12h':'3d','1d':'1w','1w':'1w'
+};
+function get4xIv(iv){ return IV_4X[iv] || iv; }
+
+function buildIvTabs(origIv){
+  const iv4x = get4xIv(origIv);
+  const tabs = document.getElementById('ivTabs');
+  const items = iv4x===origIv
+    ? [{iv:origIv, lbl:origIv.toUpperCase()}]
+    : [{iv:origIv, lbl:origIv.toUpperCase()}, {iv:iv4x, lbl:`${iv4x.toUpperCase()} (4×)`}];
+  tabs.innerHTML = items.map(({iv,lbl})=>
+    `<button class="iv-tab${iv===modCurIv?' on':''}" onclick="switchModIv('${iv}')">${lbl}</button>`
+  ).join('');
+}
+
+function switchModIv(iv){
+  modCurIv = iv;
+  buildIvTabs(modOrigIv);
+  loadModal();
+}
+
+// ── Chips ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('#chips .chip').forEach(c=>{
+  c.addEventListener('click',()=>{
+    document.querySelectorAll('#chips .chip').forEach(x=>x.classList.remove('on'));
+    c.classList.add('on');
+    document.getElementById('ivInput').value=c.dataset.v;
+  });
+});
+document.getElementById('ivInput').addEventListener('input',function(){
+  const v=this.value.trim().toLowerCase();
+  document.querySelectorAll('#chips .chip').forEach(c=>c.classList.toggle('on',c.dataset.v===v));
+});
+function setFilter(f){
+  curFilter=f;
+  document.querySelectorAll('.fmbtn').forEach(b=>b.classList.toggle('on',b.dataset.f===f));
+  const showVal = (f==='volspike'||f==='volchange');
+  document.getElementById('fvalGroup').style.display = showVal ? '' : 'none';
+  if(f==='volspike'){
+    document.getElementById('fvalLabel').textContent='最低漲跌幅';
+    document.getElementById('fvalInput').value='5';
+    document.getElementById('fvalInput').min='0';
+    document.getElementById('fvalHint').textContent='|漲跌幅| ≥ 此值的幣種';
+  } else if(f==='volchange'){
+    document.getElementById('fvalLabel').textContent='日量變化門檻';
+    document.getElementById('fvalInput').value='50';
+    document.getElementById('fvalInput').min='-99';
+    document.getElementById('fvalHint').textContent='正數=暴增 負數=暴跌（今日÷昨日-1）×100';
+  }
+}
+function toggleFib(){
+  useFib=!useFib;
+  document.getElementById('fibToggle').classList.toggle('on',useFib);
+  document.getElementById('fibTxt').textContent=useFib?'開啟（找所有底底高）':'關閉';
+}
+
+// ── Format ────────────────────────────────────────────────────────────────────
+function fP(v){v=+v;if(!v&&v!==0)return'-';if(v<.0001)return v.toFixed(8);if(v<.01)return v.toFixed(6);if(v<1)return v.toFixed(5);if(v<100)return v.toFixed(4);return v.toFixed(2);}
+function fC(v){v=+v;return(v>=0?'+':'')+v.toFixed(2)+'%';}
+function fV(v){if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(1)+'K';return(+v).toFixed(0);}
+
+// 相對成交量標籤
+function relVolTag(rv){
+  if(rv==null)return '';
+  const col = rv>=3?'#ff5252':rv>=2?'#ff9800':rv>=1.5?'#f59e0b':'var(--t3)';
+  return `<span class="ctag" style="background:${col}22;color:${col}">量${rv.toFixed(1)}x</span>`;
+}
+// 資金費率標籤
+function fundingTag(f){
+  if(f==null)return '';
+  const col = f>0.05?'#ff5252':f>0.01?'#ff9800':f<-0.01?'var(--g)':'var(--t3)';
+  return `<span class="ctag" style="background:${col}22;color:${col}">費${f>=0?'+':''}${f.toFixed(4)}%</span>`;
+}
+
+// ── Tab / Sort ────────────────────────────────────────────────────────────────
+function sortArr(a){
+  const b=[...a];
+  if(curSort==='volume')  b.sort((x,y)=>y.volumeUsdt-x.volumeUsdt);
+  if(curSort==='chg_d')   b.sort((x,y)=>y.changePct-x.changePct);
+  if(curSort==='chg_a')   b.sort((x,y)=>x.changePct-y.changePct);
+  if(curSort==='name')    b.sort((x,y)=>x.symbol.localeCompare(y.symbol));
+  if(curSort==='relvol')  b.sort((x,y)=>(y.relVol||0)-(x.relVol||0));
+  if(curSort==='funding') b.sort((x,y)=>(y.funding||0)-(x.funding||0));
+  if(curSort==='oi')      b.sort((x,y)=>(y.oiUsdt||0)-(x.oiUsdt||0));
+  return b;
+}
+function setSort(s){curSort=s;renderContent();}
+function switchTab(t){
+  curTab=t;
+  ['all','above','below'].forEach(x=>document.getElementById('tab-'+x).className='tab'+(x===t?' on':''));
+  renderContent();
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+async function startScan(){
+  const btn=document.getElementById('scanBtn');
+  const iv=document.getElementById('ivInput').value.trim()||'1h';
+  const mp=document.getElementById('maPeriod').value;
+  const mt=document.getElementById('maType').value;
+  const lm=document.getElementById('limit').value;
+  const fval = (curFilter==='volspike'||curFilter==='volchange') ? (document.getElementById('fvalInput').value||0) : 0;
+  btn.disabled=true;
+  document.getElementById('livDot').className='livdot';
+  document.getElementById('livTxt').textContent='掃描中...';
+  document.getElementById('sbar').style.display='none';
+  document.getElementById('tabs').style.display='none';
+  document.getElementById('main').innerHTML=
+    `<div class="spwrap"><div class="spinner"></div>
+     <span>正在取得永續合約數據${useFib?' · 搜尋底底高':''}</span>
+     <span style="font-size:12px;color:var(--t3)">約需 20~40 秒</span></div>`;
+  try{
+    const p=new URLSearchParams({interval:iv,maPeriod:mp,maType:mt,limit:lm,
+      filterType:curFilter,filterVal:fval,useFib:useFib});
+    const resp=await fetch('/api/scan?'+p);
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error);
+    allResults=data.results||[];
+    const ab=data.above||0,bl=data.below||0,tot=data.total||0;
+    const pct=tot?Math.round(ab/tot*100):50;
+    document.getElementById('sAb').textContent=ab;
+    document.getElementById('sBl').textContent=bl;
+    document.getElementById('sTot').textContent=tot;
+    document.getElementById('pFill').style.width=pct+'%';
+    document.getElementById('pPct').textContent=pct+'%';
+    document.getElementById('lastT').textContent='更新 '+new Date().toLocaleTimeString('zh-TW');
+    document.getElementById('cnt-all').textContent=tot;
+    document.getElementById('cnt-ab').textContent=ab;
+    document.getElementById('cnt-bl').textContent=bl;
+    document.getElementById('fibStatus').style.display=useFib?'':'none';
+    document.getElementById('sbar').style.display='flex';
+    document.getElementById('tabs').style.display='flex';
+    document.getElementById('livDot').className='livdot on';
+    document.getElementById('livTxt').textContent=`${data.interval||iv} · 已同步`;
+    renderContent();
+  }catch(e){
+    document.getElementById('main').innerHTML=
+      `<div class="errbox">⚠ ${e.message}</div><div class="empty">請確認 server.py 已啟動且網路正常</div>`;
+    document.getElementById('livDot').className='livdot';
+    document.getElementById('livTxt').textContent='離線';
+  }
+  btn.disabled=false;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderContent(){
+  const mc=document.getElementById('main');
+  let data=[...allResults];
+  if(curTab==='above')data=data.filter(r=>r.isAbove);
+  if(curTab==='below')data=data.filter(r=>!r.isAbove);
+  data=sortArr(data);
+  visList=data;
+  if(!data.length){
+    mc.innerHTML='<div class="empty"><div class="eico">🔍</div><div>無符合條件的標的</div></div>';
+    return;
+  }
+  const sortHTML=`<div class="sortrow"><span class="sortlbl">排序：</span>
+    ${[['volume','成交量'],['chg_d','漲幅↑'],['chg_a','漲幅↓'],['relvol','相對量'],['funding','資金費率'],['oi','OI'],['name','名稱']].map(([v,l])=>
+      `<button class="sbtn${curSort===v?' on':''}" onclick="setSort('${v}')">${l}</button>`).join('')}
+  </div>`;
+  let html=sortHTML;
+  if(curTab==='all'){
+    const ab=data.filter(r=>r.isAbove),bl=data.filter(r=>!r.isAbove);
+    html+=`<div class="slbl">均線之上 <span class="sbadge sg">${ab.length}</span></div>
+    <div class="grid">${ab.map(r=>cardHTML(r,data.indexOf(r))).join('')||nd()}</div>
+    <div class="slbl">均線之下 <span class="sbadge sr">${bl.length}</span></div>
+    <div class="grid">${bl.map(r=>cardHTML(r,data.indexOf(r))).join('')||nd()}</div>`;
+  }else{
+    html+=`<div class="grid">${data.map((r,i)=>cardHTML(r,i)).join('')}</div>`;
+  }
+  mc.innerHTML=html;
+  setTimeout(()=>data.forEach(r=>drawMini(r)),30);
+}
+function nd(){return '<span style="color:var(--t3);font-size:13px">無</span>';}
+
+function cardHTML(r,idx){
+  const hasFib=r.fibs&&r.fibs.length>0;
+  const cls=hasFib?'fibcard':(r.isAbove?'above':'below');
+  const cid='cv_'+r.symbol.replace(/[^a-zA-Z0-9]/g,'_');
+  return `<div class="card ${cls}" onclick="openMod(${idx})">
+    <div class="chard">
+      <span class="csym">${r.displayName}</span>
+      <span class="cchg ${r.changePct>=0?'pos':'neg'}">${fC(r.changePct)}</span>
+    </div>
+    <div class="cwrap" id="${cid}"></div>
+    <div class="cfoot">
+      <span class="cprc">${fP(r.lastClose)}</span>
+      <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;justify-content:flex-end">
+        ${relVolTag(r.relVol)}
+        ${fundingTag(r.funding)}
+        ${r.volChangePct!=null ? `<span style="font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;background:${r.volChangePct>=0?'rgba(38,166,154,.12)':'rgba(239,83,80,.12)'};color:${r.volChangePct>=0?'var(--g)':'var(--r)'}">日量${r.volChangePct>=0?'+':''}${r.volChangePct.toFixed(0)}%</span>` : ''}
+        ${hasFib
+          ?`<span class="cfib">📐 ${r.fibCount} 組底底高</span>`
+          :`<span class="cma ${r.isAbove?'above':'below'}">${r.isAbove?'▲ MA上':'▼ MA下'}</span>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── SVG 蠟燭圖核心 ────────────────────────────────────────────────────────────
+function drawSVG(container, W, H, times, opens, highs, lows, closes, mas, fibs, showAxes){
+  const n=closes.length;
+  if(!n){container.innerHTML='';return;}
+  const GU='#26a69a',GD='#ef5350',MAC='#4f7fff';
+  // pR：showAxes 時需容納多組 Fib 標籤（最多3組，每組約78px）
+  const fibCount = (fibs&&fibs.length)||1;
+  const pL=showAxes?6:2, pR=showAxes?Math.max(160,80+fibCount*78):2, pT=showAxes?34:3, pB=showAxes?22:3;
+  const cW=W-pL-pR, cH=H-pT-pB;
+
+  // y 範圍：所有組的 fib0 納入下沿，只用 ratio≤1.73 的延伸線納入上沿，避免大倍率拉爆比例
+  let hiV=Math.max(...highs), loV=Math.min(...lows);
+  if(fibs&&fibs.length){
+    // 所有組：確保 fib0 可見（下沿）
+    fibs.forEach(grp=>{ if(grp.fib0) loV=Math.min(loV,grp.fib0); });
+    // 只有最新組：只將 ratio≤1.73 的延伸線納入上沿（避免6.92等大倍率炸掉比例）
+    const lastGrp=fibs[fibs.length-1];
+    if(lastGrp.fib0!=null&&lastGrp.fib1!=null){
+      const fib0=lastGrp.fib0, fib1=lastGrp.fib1;
+      [1.0,1.46,1.73].forEach(ratio=>{
+        const p=fib0+(fib1-fib0)*ratio;
+        hiV=Math.max(hiV,p);
+      });
+    }
+  }
+  const yRange0=hiV-loV||hiV*0.001||1;
+  const pad=yRange0*0.04;
+  const yLo=loV-pad, yHi=hiV+pad, yRange=yHi-yLo;
+  const yS=v=>pT+cH*(1-(v-yLo)/yRange);
+  // 儲存 Y 軸比例尺供 crosshair 使用
+  if(showAxes) modChartParams={yLo,yHi,yRange,pT,cH,pR};
+
+  const bw=Math.max(1.5,Math.floor(cW/n)-1);
+  const xS=i=>pL+i*(bw+1);
+
+  const clipId='fibClip';
+  const clipDef=`<defs><clipPath id="${clipId}"><rect x="${pL}" y="${pT}" width="${cW+4}" height="${cH+4}"/></clipPath></defs>`;
+
+  let bars='',maPath='',axes='',fibSvg='';
+
+  // 軸
+  if(showAxes){
+    for(let i=0;i<=5;i++){
+      const v=yLo+yRange*i/5,y=yS(v);
+      axes+=`<line x1="${pL}" y1="${y.toFixed(1)}" x2="${W-pR+2}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.04)" stroke-width="1"/>`;
+      axes+=`<text x="${(W-pR+92).toFixed(1)}" y="${(y+4).toFixed(1)}" font-size="10" fill="#4a4f60" font-family="monospace">${fP(v)}</text>`;
+    }
+    const step=Math.max(1,Math.floor(n/8));
+    for(let i=0;i<n;i+=step){
+      const x=(xS(i)+bw/2).toFixed(1);
+      const d=new Date(times[i]);
+      const lbl=`${d.getMonth()+1}/${d.getDate()} ${('0'+d.getHours()).slice(-2)}:${('0'+d.getMinutes()).slice(-2)}`;
+      axes+=`<text x="${x}" y="${H-4}" font-size="9" fill="#4a4f60" text-anchor="middle">${lbl}</text>`;
+    }
+    const lp=closes[n-1],ly=yS(lp),lc=closes[n-1]>=opens[n-1]?GU:GD;
+    axes+=`<line x1="${pL}" y1="${ly.toFixed(1)}" x2="${W-pR+2}" y2="${ly.toFixed(1)}" stroke="${lc}" stroke-width="0.7" stroke-dasharray="3,2"/>`;
+    axes+=`<rect x="${(W-pR+88).toFixed(1)}" y="${(ly-9).toFixed(1)}" width="68" height="18" rx="3" fill="${lc}"/>`;
+    axes+=`<text x="${(W-pR+122).toFixed(1)}" y="${(ly+4).toFixed(1)}" font-size="10" fill="#fff" text-anchor="middle">${fP(lp)}</text>`;
+  }
+
+  // 多組 Fib（最多3組）：由舊到新畫，最新最亮，越舊越淡
+  if(fibs&&fibs.length){
+    const xEnd = W-pR+2;
+    const xLbl = W-pR+6;
+    const rc = showAxes ? 5 : 3;
+    const ri = showAxes ? 3 : 1.5;
+    // 透明度：最新=0.92，第二=0.55，第三=0.35
+    const opacities = [0.35, 0.55, 0.92];
+    const total = fibs.length; // 最多3組
+    const ratioLabel = r => r===0?'0':r===1?'1':r.toFixed(2).replace(/\.?0+$/,'');
+
+    fibs.forEach((grp, gi)=>{
+      const {barA,barB,levels}=grp;
+      if(!levels) return;
+      // gi=0最舊，gi=total-1最新；對應 opacities 從後往前取
+      const op = opacities[opacities.length - total + gi];
+      const isLatest = (gi === total-1);
+
+      const xBarA = barA >= n ? null : (barA >= 0 ? xS(barA)+bw/2 : pL);
+      const xBarB = barB >= n ? null : (barB >= 0 ? xS(barB)+bw/2 : pL);
+      if(xBarA===null && xBarB===null) return;
+
+      let fibLines='', fibLabels='';
+
+      levels.forEach(([ratio,price,color])=>{
+        const y   = yS(price).toFixed(1);
+        const isKey = (ratio===0||ratio===1);
+        const sw  = isLatest ? (isKey?2:1.2) : (isKey?1.5:0.8);
+
+        let x1;
+        if(ratio===0){ if(xBarA===null) return; x1=xBarA.toFixed(1); }
+        else         { if(xBarB===null) return; x1=xBarB.toFixed(1); }
+
+        fibLines+=`<line x1="${x1}" y1="${y}" x2="${xEnd.toFixed(1)}" y2="${y}" stroke="${color}" stroke-width="${sw}" opacity="${op}"/>`;
+
+        if(showAxes){
+          const lbl = `${ratioLabel(ratio)} (${fP(price)})`;
+          const bw2 = lbl.length*6.2+6;
+          const yNum=+y;
+          // 每組標籤 x 往右偏移，避免重疊（最新靠右，較舊靠左）
+          const lblX = xLbl + (total-1-gi)*78;
+          fibLabels+=`<rect x="${lblX.toFixed(1)}" y="${(yNum-10).toFixed(1)}" width="${bw2.toFixed(1)}" height="14" rx="2" fill="rgba(13,15,20,0.85)"/>`;
+          fibLabels+=`<text x="${(lblX+3).toFixed(1)}" y="${(yNum+2).toFixed(1)}" font-size="10.5" fill="${color}" font-weight="700" opacity="${op}" font-family="monospace">${lbl}</text>`;
+        } else if(!showAxes){
+          fibSvg+=`<text x="${(+x1+2).toFixed(1)}" y="${(+y-2).toFixed(1)}" font-size="7" fill="${color}" opacity="${op}" font-weight="600">${ratio===0?'0':ratio===1?'1':((ratio-1)*100).toFixed(0)}</text>`;
+        }
+      });
+
+      // 白點（每組都畫，最新較大）
+      const y0num=yS(grp.fib0), y1num=yS(grp.fib1);
+      const dotR = isLatest ? rc : Math.max(2, rc-1);
+      const dotRi = isLatest ? ri : Math.max(1, ri-1);
+      let fibDots='';
+      if(barA>=0&&barA<n){
+        const xa=(xS(barA)+bw/2).toFixed(1);
+        fibDots+=`<circle cx="${xa}" cy="${y0num.toFixed(1)}" r="${dotR}" fill="white" opacity="${op}"/>`;
+        fibDots+=`<circle cx="${xa}" cy="${y0num.toFixed(1)}" r="${dotRi}" fill="#0d0f14" opacity="${op}"/>`;
+      }
+      if(barB>=0&&barB<n){
+        const xb=(xS(barB)+bw/2).toFixed(1);
+        fibDots+=`<circle cx="${xb}" cy="${y1num.toFixed(1)}" r="${dotR}" fill="white" opacity="${op}"/>`;
+        fibDots+=`<circle cx="${xb}" cy="${y1num.toFixed(1)}" r="${dotRi}" fill="#0d0f14" opacity="${op}"/>`;
+      }
+      // ── 頂部標記：第1根(barA)、第2根(barB) 大型標記 + 時間 ──
+      let fibTopMarkers='';
+      if(isLatest && showAxes){
+        const fmtTime = ts => {
+          if(!ts) return '';
+          const d = new Date(ts);
+          const mo = String(d.getMonth()+1).padStart(2,'0');
+          const dy = String(d.getDate()).padStart(2,'0');
+          const hh = String(d.getHours()).padStart(2,'0');
+          const mm = String(d.getMinutes()).padStart(2,'0');
+          return `${mo}/${dy} ${hh}:${mm}`;
+        };
+        const markerData = [
+          { x: xBarA, idx: barA, label:'① 第1根', color:'#f59e0b' },
+          { x: xBarB, idx: barB, label:'② 第2根', color:'#4f7fff' },
+        ];
+        markerData.forEach(({x, idx, label, color})=>{
+          if(x===null || idx<0 || idx>=n) return;
+          const cx = +x;
+          const timeStr = fmtTime(times[idx]);
+          const fullLbl = timeStr ? `${label}  ${timeStr}` : label;
+          const boxW = fullLbl.length * 7.2 + 12;
+          const boxH = 18;
+          const triH = 9;
+          const topY = 2;               // 頂部起始 y（從 SVG 頂端往下 2px，在圖表區域之上）
+          const boxX = Math.min(Math.max(cx - boxW/2, pL), W - pR - boxW);
+          fibTopMarkers +=
+            // 向下三角箭頭
+            `<polygon points="${cx},${topY+triH+boxH} ${cx-6},${topY+boxH} ${cx+6},${topY+boxH}" fill="${color}"/>` +
+            // 背景框
+            `<rect x="${boxX}" y="${topY}" width="${boxW}" height="${boxH}" rx="4" fill="${color}"/>` +
+            // 文字
+            `<text x="${boxX+boxW/2}" y="${topY+13}" font-size="11" fill="#0d0f14" font-weight="800" text-anchor="middle" font-family="monospace">${fullLbl}</text>`;
+        });
+      }
+      // ── 第5根 / 第8根 底部標記（只在最新組、彈窗顯示）──
+      let fibCheckMarkers='';
+      if(isLatest && showAxes){
+        const {bar5, bar8} = grp;
+        const checkBars = [
+          {idx: bar5, lbl:'⑤', color:'#ff9800'},
+          {idx: bar8, lbl:'⑧', color:'#ab47bc'},
+        ];
+        const botY = H - pB + 2;  // 底部標記 y
+        checkBars.forEach(({idx, lbl, color})=>{
+          if(idx==null || idx<0 || idx>=n) return;
+          const cx = (xS(idx)+bw/2).toFixed(1);
+          fibCheckMarkers +=
+            // 向上三角箭頭
+            `<polygon points="${cx},${botY-8} ${+cx-5},${botY} ${+cx+5},${botY}" fill="${color}"/>` +
+            // 文字標籤
+            `<text x="${cx}" y="${botY+11}" font-size="11" fill="${color}" font-weight="800" text-anchor="middle" font-family="monospace">${lbl}</text>`;
+        });
+      }
+      fibSvg+=`<g clip-path="url(#${clipId})">${fibLines}</g>${fibLabels}${fibDots}${fibTopMarkers}${fibCheckMarkers}`;
+    });
+  }
+
+  // K 棒
+  for(let i=0;i<n;i++){
+    const x=xS(i).toFixed(1),xm=(xS(i)+bw/2).toFixed(1);
+    const o=opens[i],h=highs[i],l=lows[i],c=closes[i];
+    const col=c>=o?GU:GD;
+    const yH=yS(h).toFixed(1),yL=yS(l).toFixed(1);
+    const yO=yS(o),yC=yS(c);
+    const top=Math.min(yO,yC).toFixed(1);
+    const bh=Math.max(1,Math.abs(yC-yO)).toFixed(1);
+    bars+=`<line x1="${xm}" y1="${yH}" x2="${xm}" y2="${yL}" stroke="${col}" stroke-width="1"/>`;
+    bars+=`<rect x="${x}" y="${top}" width="${bw}" height="${bh}" fill="${col}"/>`;
+    if(mas&&mas[i]!=null) maPath+=`${maPath===''?'M':'L'}${xm},${yS(mas[i]).toFixed(1)} `;
+  }
+
+  // 繪製順序：軸 → fib → K棒 → MA（MA 必須在最上層才可見）
+  container.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="display:block">
+    ${clipDef}${axes}${fibSvg}${bars}
+    ${maPath?`<path d="${maPath}" fill="none" stroke="${MAC}" stroke-width="${showAxes?2:1.2}" stroke-linejoin="round" stroke-linecap="round"/>`: ''}
+  </svg>`;
+}
+
+function drawMini(r){
+  const cid='cv_'+r.symbol.replace(/[^a-zA-Z0-9]/g,'_');
+  const wrap=document.getElementById(cid);
+  if(!wrap)return;
+  drawSVG(wrap, wrap.clientWidth||190, 82,
+    r.times,r.opens,r.highs,r.lows,r.closes,r.maSeries,r.fibs,false);
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openMod(idx){
+  modIdx=idx;modOpen=true;
+  // 每次開新幣時，重設為原始掃描週期
+  modOrigIv = document.getElementById('ivInput').value.trim()||'1h';
+  modCurIv  = modOrigIv;
+  buildIvTabs(modOrigIv);
+  document.getElementById('movl').classList.add('open');
+  loadModal();
+}
+function closeMod(e){
+  if(!e||e.target===document.getElementById('movl')){
+    document.getElementById('movl').classList.remove('open');modOpen=false;
+  }
+}
+function navMod(d){
+  const ni=modIdx+d;
+  if(ni<0||ni>=visList.length)return;
+  modIdx=ni;
+  modCurIv=modOrigIv;   // 換幣時重設回原始週期
+  buildIvTabs(modOrigIv);
+  loadModal();
+}
+
+async function loadModal(){
+  const r=visList[modIdx];if(!r)return;
+  const iv=modCurIv||document.getElementById('ivInput').value.trim()||'1h';
+  const mp=parseInt(document.getElementById('maPeriod').value);
+  const mt=document.getElementById('maType').value;
+  const fibCnt=r.fibs?r.fibs.length:0;
+  document.getElementById('mTitle').textContent=r.displayName;
+  document.getElementById('mSub').textContent=`${iv.toUpperCase()} | ${mt}(${mp})${fibCnt?` | 📐 ${fibCnt} 組底底高`:''}`;
+  document.getElementById('mHint').textContent=`${modIdx+1} / ${visList.length}`;
+  document.getElementById('mPrev').disabled=(modIdx===0);
+  document.getElementById('mNext').disabled=(modIdx===visList.length-1);
+  document.getElementById('mStats').innerHTML='';
+  document.getElementById('mFibLeg').style.display='none';
+  document.getElementById('orderPanel').style.display='none';
+  // 重置縮放
+  modalData = null;
+  viewStart = 0; viewCount = 0;
+  resetZoom();
+  const inner=document.getElementById('mChWInner');
+  inner.innerHTML=`<div class="mload"><div class="spinner"></div><span>載入最新 K 線...</span></div>`;
+  try{
+    const resp=await fetch(`/api/kline_detail?symbol=${r.symbol}&interval=${iv}&maPeriod=${mp}&maType=${mt}`);
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error);
+
+    // 存原始數據，初始視窗：讓 barA 落在圖表左側約 20%，線條往右延伸到最新
+    modalData = data;
+    const totalBars = data.times.length;
+    // 以最舊那組 barA 為左錨點，讓所有 Fib 組都在畫面內
+    const firstFib = data.fibs && data.fibs.length ? data.fibs[0] : null;
+    const anchorBar = firstFib ? firstFib.barA : totalBars - 1;
+    const MARGIN = 5;  // barA 左側留幾根
+    viewStart = Math.max(0, anchorBar - MARGIN);
+    viewCount = totalBars - viewStart;  // 從最舊 barA 左側顯示到最新
+    viewCount = Math.min(viewCount, totalBars);
+    redrawModal();
+
+    const lc=data.closes[data.closes.length-1];
+    const lma=data.maSeries[data.maSeries.length-1];
+    const dist=lma?((lc-lma)/lma*100):0;
+    let statsHTML=`
+      <div class="ii"><span class="il">最新價格</span><span class="iv">${fP(lc)}</span></div>
+      <div class="ii"><span class="il">${mt}(${mp})</span><span class="iv">${fP(lma)}</span></div>
+      <div class="ii"><span class="il">距均線</span><span class="iv ${dist>=0?'g':'r'}">${dist>=0?'+':''}${dist.toFixed(2)}%</span></div>
+      <div class="ii"><span class="il">24h 漲跌</span><span class="iv ${r.changePct>=0?'g':'r'}">${fC(r.changePct)}</span></div>
+      <div class="ii"><span class="il">24h 成交量</span><span class="iv">${fV(r.volumeUsdt)}</span></div>
+      ${r.volChangePct!=null?`<div class="ii"><span class="il">日量變化</span><span class="iv ${r.volChangePct>=0?'g':'r'}">${r.volChangePct>=0?'+':''}${r.volChangePct.toFixed(1)}%</span></div>`:''}
+      ${r.relVol!=null?`<div class="ii"><span class="il">相對成交量</span><span class="iv" style="color:${r.relVol>=3?'#ff5252':r.relVol>=2?'#ff9800':r.relVol>=1.5?'var(--gold)':'var(--t2)'}">${r.relVol.toFixed(2)}x</span></div>`:''}
+      ${r.funding!=null?`<div class="ii"><span class="il">資金費率</span><span class="iv" style="color:${r.funding>0.05?'#ff5252':r.funding>0.01?'#ff9800':r.funding<-0.01?'var(--g)':'var(--t2)'}">${r.funding>=0?'+':''}${r.funding.toFixed(4)}%</span></div>`:''}
+      ${r.oiUsdt!=null?`<div class="ii"><span class="il">未平倉量</span><span class="iv">${fV(r.oiUsdt)} USDT</span></div>`:''}`;
+
+    if(data.fibs&&data.fibs.length){
+      statsHTML+=`<div class="ii"><span class="il">底底高組數</span><span class="iv gold">${data.fibs.length} 組</span></div>`;
+      const last=data.fibs[data.fibs.length-1];
+      statsHTML+=`<div class="ii"><span class="il">最新 Fib 底</span><span class="iv gold">${fP(last.fib0)}</span></div>`;
+      statsHTML+=`<div class="ii"><span class="il">最新 Fib 頂</span><span class="iv gold">${fP(last.fib1)}</span></div>`;
+      const sortedPrices=last.levels.map(([,p])=>p).sort((a,b)=>a-b);
+      const idx=sortedPrices.findIndex(p=>p>lc);
+      if(idx>0){
+        const lo=last.levels.find(([,p])=>Math.abs(p-sortedPrices[idx-1])<1e-10);
+        const hi=last.levels.find(([,p])=>Math.abs(p-sortedPrices[idx])<1e-10);
+        if(lo&&hi) statsHTML+=`<div class="ii"><span class="il">價格區間</span><span class="iv gold">${lo[0].toFixed(2).replace(/\.?0+$/,'')} ~ ${hi[0].toFixed(2).replace(/\.?0+$/,'')}</span></div>`;
+      }
+      const legEl=document.getElementById('mFibLeg');
+      legEl.style.display='flex';
+      legEl.innerHTML=last.levels.map(([ratio,price,color])=>{
+        const lbl=ratio===0?'0':ratio===1?'1':ratio.toFixed(2).replace(/\.?0+$/,'');
+        return `<div class="fleg">
+          <div class="fleg-sw" style="background:${color}"></div>
+          <span style="color:${color}">${lbl}</span>
+          <span style="color:var(--t3)">${fP(price)}</span>
+        </div>`;
+      }).join('');
+
+      // ── 填入開單面板預設值 ──
+      const getLevel = ratio => {
+        const lv = last.levels.find(([r])=>Math.abs(r-ratio)<1e-9);
+        return lv ? lv[1] : null;
+      };
+      const p6  = n => n!=null ? parseFloat(n.toPrecision(6)) : '';
+      const fib0p  = getLevel(0);
+      const fib1p  = getLevel(1);
+      const fib692 = getLevel(6.92);
+      const fib1211= getLevel(12.11);
+
+      document.getElementById('opEntry').value   = p6(fib1p);
+      document.getElementById('opSl').value      = p6(fib0p);
+      document.getElementById('opTp1').value     = p6(fib692);
+      document.getElementById('opTp2').value     = p6(fib1211);
+      document.getElementById('opEntryLbl').textContent = 'Fib 1';
+      document.getElementById('opSlLbl').textContent    = 'Fib 0';
+      document.getElementById('opTp1Lbl').textContent   = 'Fib 6.92';
+      document.getElementById('opTp2Lbl').textContent   = 'Fib 12.11';
+      document.getElementById('orderPanel').style.display='flex';
+      calcOrder();
+    }
+    document.getElementById('mStats').innerHTML=statsHTML;
+  }catch(e){
+    inner.innerHTML=`<div class="mload" style="color:var(--r)">⚠ ${e.message}</div>`;
+  }
+}
+
+// ── 開單計算 ──────────────────────────────────────────────────────────────────
+function calcOrder(){
+  const entry = parseFloat(document.getElementById('opEntry').value);
+  const sl    = parseFloat(document.getElementById('opSl').value);
+  const tp1   = parseFloat(document.getElementById('opTp1').value);
+  const tp2   = parseFloat(document.getElementById('opTp2').value);
+  const tp1pct= parseFloat(document.getElementById('opTp1Pct').value)||0;
+  const tp2pct= parseFloat(document.getElementById('opTp2Pct').value)||0;
+  const el    = document.getElementById('opResult');
+  if(!entry||!sl||isNaN(entry)||isNaN(sl)){el.innerHTML='';return;}
+
+  const risk   = Math.abs(entry - sl);
+  const riskPct= (risk / entry * 100);
+
+  let html = `<div class="op-res-item"><span class="op-res-lbl">風險幅度</span><span class="op-res-val r">${riskPct.toFixed(2)}%</span></div>`;
+
+  if(!isNaN(tp1)&&tp1>0){
+    const r1    = (tp1 - entry) / risk;
+    const gain1 = (tp1 - entry) / entry * 100;
+    html += `<div class="op-res-item"><span class="op-res-lbl">TP1 R:R</span><span class="op-res-val g">1 : ${r1.toFixed(2)}</span></div>`;
+    html += `<div class="op-res-item"><span class="op-res-lbl">TP1 獲利</span><span class="op-res-val g">+${(gain1*tp1pct/100).toFixed(2)}%<span style="color:var(--t3);font-weight:400"> (倉${tp1pct}%)</span></span></div>`;
+  }
+  if(!isNaN(tp2)&&tp2>0){
+    const r2    = (tp2 - entry) / risk;
+    const gain2 = (tp2 - entry) / entry * 100;
+    html += `<div class="op-res-item"><span class="op-res-lbl">TP2 R:R</span><span class="op-res-val g">1 : ${r2.toFixed(2)}</span></div>`;
+    html += `<div class="op-res-item"><span class="op-res-lbl">TP2 獲利</span><span class="op-res-val g">+${(gain2*tp2pct/100).toFixed(2)}%<span style="color:var(--t3);font-weight:400"> (倉${tp2pct}%)</span></span></div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ── API 設定 & 下單 ───────────────────────────────────────────────────────────
+(async()=>{
+  try{
+    const r=await fetch('/api/config');
+    const c=await r.json();
+    document.getElementById('cfgKey').value   = c.api_key||'';
+    document.getElementById('cfgDemo').checked= c.demo_mode!==false;
+  }catch(e){}
+})();
+
+async function saveApiConfig(){
+  const key    = document.getElementById('cfgKey').value.trim();
+  const secret = document.getElementById('cfgSecret').value.trim();
+  const demo   = document.getElementById('cfgDemo').checked;
+  const body   = {demo_mode:demo};
+  if(key)    body.api_key    = key;
+  if(secret) body.api_secret = secret;
+  try{
+    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const st=document.getElementById('cfgStatus');
+    st.textContent='✓ 已儲存';
+    setTimeout(()=>st.textContent='',3000);
+  }catch(e){ document.getElementById('cfgStatus').textContent='✗ '+e.message; }
+}
+
+async function checkBalance(){
+  const el=document.getElementById('opBalanceInfo');
+  el.textContent='查詢中...';
+  try{
+    const r=await fetch('/api/account_balance');
+    const d=await r.json();
+    if(d.error){el.textContent='✗ '+d.error;return;}
+    const bal=d?.data?.balance?.balance||d?.data?.balance||JSON.stringify(d);
+    el.textContent=`餘額 ${typeof bal==='object'?JSON.stringify(bal):bal} USDT`;
+  }catch(e){el.textContent='✗ '+e.message;}
+}
+
+let opOrderType = 'LIMIT';
+function setOrderType(t){
+  opOrderType = t;
+  const isLmt = t==='LIMIT';
+  document.getElementById('opTypeLmt').style.background = isLmt ? 'var(--ac)' : 'var(--bg4)';
+  document.getElementById('opTypeLmt').style.color      = isLmt ? '#fff' : 'var(--t2)';
+  document.getElementById('opTypeMkt').style.background = isLmt ? 'var(--bg4)' : 'var(--ac)';
+  document.getElementById('opTypeMkt').style.color      = isLmt ? 'var(--t2)' : '#fff';
+  document.getElementById('opEntryRow').style.display   = isLmt ? '' : 'none';
+}
+
+async function submitOrder(){
+  const r = visList[modIdx]; if(!r) return;
+  const isMkt = opOrderType === 'MARKET';
+  const entry = parseFloat(document.getElementById('opEntry').value);
+  const sl    = parseFloat(document.getElementById('opSl').value);
+  const tp1   = parseFloat(document.getElementById('opTp1').value)||0;
+  const tp2   = parseFloat(document.getElementById('opTp2').value)||0;
+  const tp1p  = parseFloat(document.getElementById('opTp1Pct').value)||0;
+  const tp2p  = parseFloat(document.getElementById('opTp2Pct').value)||0;
+  const qty   = parseFloat(document.getElementById('opQty').value)||0;
+  const missing=[];
+  if(!isMkt && (!entry||isNaN(entry))) missing.push('開倉點位');
+  if(!sl||isNaN(sl))       missing.push('停損點位');
+  if(qty<=0||isNaN(qty))   missing.push('數量（張）');
+  if(missing.length){alert('請填入：'+missing.join('、'));return;}
+
+  const resEl = document.getElementById('opOrderResult');
+  const btn   = document.getElementById('opSubmitBtn');
+  btn.disabled=true; btn.textContent='送出中...';
+  resEl.style.display='none';
+
+  try{
+    const res=await fetch('/api/place_order',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        symbol:r.symbol, order_type:opOrderType,
+        entry:isMkt?null:entry, sl,
+        tp1:tp1||null, tp1_pct:tp1p,
+        tp2:tp2||null, tp2_pct:tp2p,
+        quantity:qty
+      })
+    });
+    const d=await res.json();
+    resEl.style.display='block';
+    if(d.error){
+      resEl.style.color='var(--r)';
+      resEl.textContent='✗ '+d.error;
+    }else if(!d.ok){
+      // 主單失敗
+      const main = d.results && d.results[0] && d.results[0].response;
+      const msg  = main ? (main.msg || JSON.stringify(main)) : JSON.stringify(d.results,null,2);
+      resEl.style.color='var(--r)';
+      resEl.textContent='✗ 主單失敗：'+msg;
+    }else{
+      resEl.style.color='var(--g)';
+      resEl.textContent='✓ 下單成功\n'+JSON.stringify(d.results,null,2);
+    }
+  }catch(e){
+    resEl.style.display='block';
+    resEl.style.color='var(--r)';
+    resEl.textContent='✗ '+e.message;
+  }finally{
+    btn.disabled=false; btn.textContent='📤 送出下單';
+  }
+}
+
+// ── 縮放狀態（控制可見 K 棒範圍）────────────────────────────────────────────
+let modalData = null;       // 當前大圖的原始數據
+let viewStart  = 0;         // 可見範圍起始索引
+let viewCount  = 0;         // 可見 K 棒數量（初始 = 全部）
+let isDragging = false, dragStartX=0, dragStartView=0;
+let modChartParams = null;   // Y 軸比例尺（crosshair 用）
+
+function redrawModal(){
+  if(!modalData) return;
+  const wrap = document.getElementById('mChW');
+  if(!wrap) return;
+  const W = wrap.clientWidth  || 1100;
+  const H = wrap.clientHeight || 500;
+  const {times,opens,highs,lows,closes,maSeries,fibs} = modalData;
+  const n = times.length;
+  const s = Math.max(0, Math.min(viewStart, n - viewCount));
+  const e = Math.min(n, s + viewCount);
+  viewStart = s;
+
+  const sliceTimes  = times.slice(s, e);
+  const sliceOpens  = opens.slice(s, e);
+  const sliceHighs  = highs.slice(s, e);
+  const sliceLows   = lows.slice(s, e);
+  const sliceCloses = closes.slice(s, e);
+  const sliceMas    = maSeries.slice(s, e);
+
+  // 所有 Fib 組的 barA/barB/bar5/bar8 轉換成切片內索引
+  let sliceFibs = null;
+  if(fibs && fibs.length){
+    sliceFibs = fibs.map(g => ({
+      ...g,
+      barA: g.barA - s,
+      barB: g.barB - s,
+      bar5: g.bar5 != null ? g.bar5 - s : null,
+      bar8: g.bar8 != null ? g.bar8 - s : null,
+    }));
+  }
+
+  const inner = document.getElementById('mChWInner');
+  inner.style.width  = W + 'px';
+  inner.style.height = H + 'px';
+  inner.style.transform = '';
+  drawSVG(inner, W, H, sliceTimes, sliceOpens, sliceHighs, sliceLows, sliceCloses, sliceMas, sliceFibs, true);
+}
+
+function zoomChart(factor, cx){
+  if(!modalData) return;
+  const n = modalData.times.length;
+  const wrap = document.getElementById('mChW');
+  const W = wrap ? wrap.clientWidth : 1100;
+
+  // 修正：扣掉 pL(6) 和 pR(160)，cx 在 K 棒畫布內的比例
+  const pL = 6, pR = 160;
+  const chartW = W - pL - pR;
+  const cxInChart = Math.min(Math.max(cx - pL, 0), chartW);
+  const ratio = cxInChart / chartW;
+
+  // 以游標對應的 K 棒為縮放中心，縮放後該 K 棒位置不動
+  const centerBar = viewStart + ratio * viewCount;
+  const newCount = Math.min(n, Math.max(5, Math.round(viewCount / factor)));
+  viewStart = Math.round(centerBar - ratio * newCount);
+  viewCount = newCount;
+  viewStart = Math.max(0, Math.min(viewStart, n - viewCount));
+  redrawModal();
+}
+
+function resetZoom(){
+  if(!modalData) return;
+  viewStart = 0;
+  viewCount = modalData.times.length;
+  redrawModal();
+}
+
+function applyTransform(){} // no-op，保留相容性
+
+// 滾輪縮放（在圖表區域內）
+document.getElementById('movl').addEventListener('wheel', e=>{
+  if(!modOpen) return;
+  const wrap = document.getElementById('mChW');
+  if(!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  const inChart = e.clientX>=rect.left && e.clientX<=rect.right && e.clientY>=rect.top && e.clientY<=rect.bottom;
+  if(inChart){
+    e.preventDefault();
+    const cx = e.clientX - rect.left;
+    zoomChart(e.deltaY < 0 ? 1.2 : 0.85, cx);
+  }
+  // 不在圖表區域：讓頁面正常捲動，不切換標的
+},{passive:false});
+
+// 拖曳平移
+document.getElementById('mChW').addEventListener('mousemove', e=>{
+  if(!modChartParams) return;
+  const wrap = document.getElementById('mChW');
+  const rect = wrap.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const {yLo, yHi, yRange, pT, cH} = modChartParams;
+  const cross = document.getElementById('mCross');
+  if(y < pT || y > pT + cH){ cross.style.display='none'; return; }
+  const price = yHi - (y - pT) / cH * yRange;
+  document.getElementById('mCrossH').style.top     = y + 'px';
+  document.getElementById('mCrossPrice').style.top = y + 'px';
+  document.getElementById('mCrossPrice').textContent = fP(price);
+  cross.style.display = 'block';
+});
+document.getElementById('mChW').addEventListener('mouseleave', ()=>{
+  document.getElementById('mCross').style.display='none';
+});
+
+document.getElementById('mChW').addEventListener('mousedown', e=>{
+  if(e.button !== 0 || !modalData) return;
+  isDragging   = true;
+  dragStartX   = e.clientX;
+  dragStartView= viewStart;
+  document.getElementById('mChW').classList.add('grabbing');
+  e.preventDefault();
+});
+document.addEventListener('mousemove', e=>{
+  if(!isDragging || !modalData) return;
+  const wrap = document.getElementById('mChW');
+  const W = wrap ? wrap.clientWidth : 1100;
+  const chartW = W - 6 - 160;   // pL=6, pR=160
+  const bw = chartW / viewCount;
+  const delta = Math.round((dragStartX - e.clientX) / bw);
+  viewStart = Math.max(0, Math.min(dragStartView + delta, modalData.times.length - viewCount));
+  redrawModal();
+});
+document.addEventListener('mouseup', ()=>{
+  if(isDragging){ isDragging=false; document.getElementById('mChW').classList.remove('grabbing'); }
+});
+
+// 觸控
+let touchDist0=0, touchMidX0=0, touchViewStart0=0, touchViewCount0=0;
+let touchSx=0, touchViewS0=0;
+document.getElementById('mChW').addEventListener('touchstart', e=>{
+  if(e.touches.length===2){
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    touchDist0=Math.hypot(dx,dy);
+    touchMidX0=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    touchViewStart0=viewStart; touchViewCount0=viewCount;
+  } else if(e.touches.length===1){
+    touchSx=e.touches[0].clientX; touchViewS0=viewStart;
+  }
+},{passive:true});
+document.getElementById('mChW').addEventListener('touchmove', e=>{
+  const wrap=document.getElementById('mChW');
+  const W=wrap?wrap.clientWidth:1100;
+  if(e.touches.length===2){
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    const dist=Math.hypot(dx,dy);
+    if(touchDist0>0&&modalData){
+      const f=touchDist0/dist;
+      const mx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+      const ratio=mx/W;
+      const center=touchViewStart0+ratio*touchViewCount0;
+      const newC=Math.min(modalData.times.length,Math.max(10,Math.round(touchViewCount0*f)));
+      viewStart=Math.round(center-ratio*newC);
+      viewCount=newC;
+      viewStart=Math.max(0,Math.min(viewStart,modalData.times.length-viewCount));
+      redrawModal();
+    }
+  } else if(e.touches.length===1&&modalData){
+    const chartW = W - 6 - 160;
+    const bw = chartW / viewCount;
+    const delta=Math.round((touchSx-e.touches[0].clientX)/bw);
+    viewStart=Math.max(0,Math.min(touchViewS0+delta,modalData.times.length-viewCount));
+    redrawModal();
+  }
+  e.preventDefault();
+},{passive:false});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeMod({});return;}
+  if(!modOpen)return;
+  if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();navMod(1);}
+  if(e.key==='ArrowLeft' ||e.key==='ArrowUp')  {e.preventDefault();navMod(-1);}
+  if(e.key==='='||e.key==='+'){zoomChart(1.3);}
+  if(e.key==='-'||e.key==='_'){zoomChart(0.77);}
+  if(e.key==='0'){resetZoom();}
+});
+</script>
+</body>
+</html>
