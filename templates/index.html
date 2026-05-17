@@ -82,8 +82,41 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
 .card.above{border-top:2px solid var(--g);}
 .card.below{border-top:2px solid var(--r);}
 .card.fibcard{border-top:2px solid var(--gold);box-shadow:0 0 0 1px rgba(245,158,11,.15);}
+.card.fibcard-short{border-top:2px solid #ab47bc;box-shadow:0 0 0 1px rgba(171,71,188,.15);}
 .chard{padding:8px 10px 2px;display:flex;justify-content:space-between;align-items:baseline;}
 .csym{font-size:12px;font-weight:600;}
+.crank{font-size:10px;color:var(--t3);margin-right:4px;min-width:22px;display:inline-block;}
+/* 統計彈窗 */
+.stat-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;align-items:center;justify-content:center;}
+.stat-overlay.open{display:flex;}
+.stat-box{background:var(--bg2);border:1px solid var(--b);border-radius:12px;width:min(560px,96vw);max-height:88vh;overflow-y:auto;padding:24px;}
+.stat-title{font-size:15px;font-weight:700;margin-bottom:4px;}
+.stat-sub{font-size:12px;color:var(--t3);margin-bottom:20px;}
+.stat-hero{display:flex;gap:16px;margin-bottom:20px;}
+.stat-kpi{flex:1;background:var(--bg3);border-radius:8px;padding:12px;text-align:center;}
+.stat-kpi .sv{font-size:22px;font-weight:700;color:var(--ac);}
+.stat-kpi .sl{font-size:11px;color:var(--t3);margin-top:2px;}
+.stat-sec{margin-bottom:18px;}
+.stat-sec-title{font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;}
+.stat-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
+.stat-lbl{width:80px;color:var(--t2);flex-shrink:0;}
+.stat-bar-wrap{flex:1;height:8px;background:var(--bg4);border-radius:4px;overflow:hidden;}
+.stat-bar-fill{height:100%;border-radius:4px;transition:width .4s;}
+.stat-rate{width:40px;text-align:right;font-weight:600;}
+.stat-n{width:50px;text-align:right;color:var(--t3);font-size:11px;}
+.bstat{padding:7px 14px;border-radius:8px;border:1px solid var(--b);background:var(--bg3);color:var(--t2);font-size:12px;cursor:pointer;transition:all .12s;}
+.bstat:hover{border-color:var(--b2);color:var(--t);}
+/* 統計彈窗分頁 */
+.stab-bar{display:flex;border-bottom:1px solid var(--b);margin-bottom:14px;gap:0;}
+.stab{padding:7px 16px;font-size:12px;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .12s;}
+.stab:hover{color:var(--t);}.stab.on{color:var(--t);border-bottom-color:var(--ac);font-weight:500;}
+/* 清單 */
+.dlist{display:flex;flex-direction:column;gap:4px;max-height:420px;overflow-y:auto;}
+.ditem{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--bg3);font-size:12px;}
+.ditem-sym{font-weight:600;width:110px;flex-shrink:0;}
+.ditem-badge{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;flex-shrink:0;}
+.ditem-meta{color:var(--t3);font-size:11px;flex:1;}
+.dlbl{font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 5px;}
 .cchg{font-size:11px;font-weight:500;}
 .cchg.pos{color:var(--g);}.cchg.neg{color:var(--r);}
 .cwrap{height:82px;background:var(--bg);}
@@ -92,6 +125,7 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
 .cma{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;}
 .cma.above{background:var(--gd);color:var(--g);}.cma.below{background:var(--rd);color:var(--r);}
 .cfib{font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;background:rgba(245,158,11,.12);color:var(--gold);}
+.cfib-short{font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;background:rgba(171,71,188,.12);color:#ce93d8;}
 .ctag{font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;}
 
 .empty{padding:2.5rem;text-align:center;color:var(--t3);}
@@ -184,8 +218,9 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
   <div class="cg"><label>MA 類型</label>
     <select id="maType"><option value="SMA">SMA</option><option value="EMA">EMA</option></select>
   </div>
-  <div class="cg"><label>顯示數量</label><input type="number" id="limit" value="40" min="5" max="200"></div>
+  <div class="cg"><label>掃描數量</label><input type="number" id="limit" value="500" min="5" max="500"></div>
   <button class="bscan" id="scanBtn" onclick="startScan()">▶ 開始掃描</button>
+  <button class="bstat" onclick="openStatModal()">📊 6.92 統計</button>
 </div>
 
 <div class="fbar">
@@ -209,7 +244,7 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
   <div class="cg">
     <label>Fibonacci 過濾</label>
     <div class="fib-toggle on" id="fibToggle" onclick="toggleFib()">
-      <span>📐</span><span id="fibTxt">開啟（找所有底底高）</span>
+      <span>📐</span><span id="fibTxt">開啟（底底高 + 頂頂低）</span>
     </div>
   </div>
 </div>
@@ -272,11 +307,21 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
       <div class="order-panel" id="orderPanel" style="display:none">
         <div class="op-title" style="display:flex;align-items:center;justify-content:space-between">
           <span>📋 開單規劃</span>
-          <div style="display:flex;gap:0;border:1px solid var(--b2);border-radius:var(--rads);overflow:hidden">
-            <button id="opTypeLmt" onclick="setOrderType('LIMIT')"
-              style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--ac);color:#fff">限價</button>
-            <button id="opTypeMkt" onclick="setOrderType('MARKET')"
-              style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--bg4);color:var(--t2)">市價</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <!-- 保證金模式 -->
+            <div style="display:flex;gap:0;border:1px solid var(--b2);border-radius:var(--rads);overflow:hidden">
+              <button id="opMarginIso" onclick="setMarginMode('isolated')"
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--ac);color:#fff">逐倉</button>
+              <button id="opMarginCross" onclick="setMarginMode('cross')"
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--bg4);color:var(--t2)">全倉</button>
+            </div>
+            <!-- 訂單類型 -->
+            <div style="display:flex;gap:0;border:1px solid var(--b2);border-radius:var(--rads);overflow:hidden">
+              <button id="opTypeLmt" onclick="setOrderType('LIMIT')"
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--ac);color:#fff">限價</button>
+              <button id="opTypeMkt" onclick="setOrderType('MARKET')"
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--bg4);color:var(--t2)">市價</button>
+            </div>
           </div>
         </div>
         <div class="op-grid">
@@ -348,6 +393,15 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
 
         <!-- 下單回應 -->
         <div id="opOrderResult" style="display:none;padding:8px 10px;background:var(--bg);border-radius:var(--rads);font-size:11px;color:var(--t2);white-space:pre-wrap;max-height:140px;overflow-y:auto"></div>
+
+        <!-- TP2 監控狀態 -->
+        <div id="tp2WatcherBox" style="display:none;margin-top:8px">
+          <div style="font-size:10px;color:var(--t3);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
+            <span>TP2 自動掛單監控</span>
+            <button onclick="refreshTp2Watchers()" style="font-size:10px;background:none;border:none;color:var(--ac);cursor:pointer">重新整理</button>
+          </div>
+          <div id="tp2WatcherList"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -493,6 +547,8 @@ async function startScan(){
     const data=await resp.json();
     if(data.error)throw new Error(data.error);
     allResults=data.results||[];
+    // 依成交量排名（後端已排序，直接加 volRank）
+    allResults.forEach((r,i)=>r.volRank=i+1);
     const ab=data.above||0,bl=data.below||0,tot=data.total||0;
     const pct=tot?Math.round(ab/tot*100):50;
     document.getElementById('sAb').textContent=ab;
@@ -552,11 +608,12 @@ function nd(){return '<span style="color:var(--t3);font-size:13px">無</span>';}
 
 function cardHTML(r,idx){
   const hasFib=r.fibs&&r.fibs.length>0;
-  const cls=hasFib?'fibcard':(r.isAbove?'above':'below');
+  const isShort=hasFib&&r.fibSide==='short';
+  const cls=hasFib?(isShort?'fibcard-short':'fibcard'):(r.isAbove?'above':'below');
   const cid='cv_'+r.symbol.replace(/[^a-zA-Z0-9]/g,'_');
   return `<div class="card ${cls}" onclick="openMod(${idx})">
     <div class="chard">
-      <span class="csym">${r.displayName}</span>
+      <span class="csym"><span class="crank">#${r.volRank||'?'}</span>${r.displayName}</span>
       <span class="cchg ${r.changePct>=0?'pos':'neg'}">${fC(r.changePct)}</span>
     </div>
     <div class="cwrap" id="${cid}"></div>
@@ -567,7 +624,9 @@ function cardHTML(r,idx){
         ${fundingTag(r.funding)}
         ${r.volChangePct!=null ? `<span style="font-size:10px;padding:2px 6px;border-radius:20px;font-weight:600;background:${r.volChangePct>=0?'rgba(38,166,154,.12)':'rgba(239,83,80,.12)'};color:${r.volChangePct>=0?'var(--g)':'var(--r)'}">日量${r.volChangePct>=0?'+':''}${r.volChangePct.toFixed(0)}%</span>` : ''}
         ${hasFib
-          ?`<span class="cfib">📐 ${r.fibCount} 組底底高</span>`
+          ? isShort
+            ? `<span class="cfib-short">📐 ${r.fibCount} 組頂頂低</span>`
+            : `<span class="cfib">📐 ${r.fibCount} 組底底高</span>`
           :`<span class="cma ${r.isAbove?'above':'below'}">${r.isAbove?'▲ MA上':'▼ MA下'}</span>`}
       </div>
     </div>
@@ -829,7 +888,7 @@ async function loadModal(){
   const inner=document.getElementById('mChWInner');
   inner.innerHTML=`<div class="mload"><div class="spinner"></div><span>載入最新 K 線...</span></div>`;
   try{
-    const resp=await fetch(`/api/kline_detail?symbol=${r.symbol}&interval=${iv}&maPeriod=${mp}&maType=${mt}`);
+    const resp=await fetch(`/api/kline_detail?symbol=${r.symbol}&interval=${iv}&maPeriod=${mp}&maType=${mt}&fibSide=${r.fibSide||'long'}`);
     const data=await resp.json();
     if(data.error)throw new Error(data.error);
 
@@ -860,10 +919,11 @@ async function loadModal(){
       ${r.oiUsdt!=null?`<div class="ii"><span class="il">未平倉量</span><span class="iv">${fV(r.oiUsdt)} USDT</span></div>`:''}`;
 
     if(data.fibs&&data.fibs.length){
-      statsHTML+=`<div class="ii"><span class="il">底底高組數</span><span class="iv gold">${data.fibs.length} 組</span></div>`;
+      const isSh = data.fibSide==='short';
+      statsHTML+=`<div class="ii"><span class="il">${isSh?'頂頂低':'底底高'}組數</span><span class="iv gold">${data.fibs.length} 組</span></div>`;
       const last=data.fibs[data.fibs.length-1];
-      statsHTML+=`<div class="ii"><span class="il">最新 Fib 底</span><span class="iv gold">${fP(last.fib0)}</span></div>`;
-      statsHTML+=`<div class="ii"><span class="il">最新 Fib 頂</span><span class="iv gold">${fP(last.fib1)}</span></div>`;
+      statsHTML+=`<div class="ii"><span class="il">${isSh?'Fib 0（頂）':'Fib 0（底）'}</span><span class="iv gold">${fP(last.fib0)}</span></div>`;
+      statsHTML+=`<div class="ii"><span class="il">${isSh?'Fib 1（底）':'Fib 1（頂）'}</span><span class="iv gold">${fP(last.fib1)}</span></div>`;
       const sortedPrices=last.levels.map(([,p])=>p).sort((a,b)=>a-b);
       const idx=sortedPrices.findIndex(p=>p>lc);
       if(idx>0){
@@ -893,14 +953,39 @@ async function loadModal(){
       const fib692 = getLevel(6.92);
       const fib1211= getLevel(12.11);
 
-      document.getElementById('opEntry').value   = p6(fib1p);
-      document.getElementById('opSl').value      = p6(fib0p);
-      document.getElementById('opTp1').value     = p6(fib692);
-      document.getElementById('opTp2').value     = p6(fib1211);
-      document.getElementById('opEntryLbl').textContent = 'Fib 1';
-      document.getElementById('opSlLbl').textContent    = 'Fib 0';
-      document.getElementById('opTp1Lbl').textContent   = 'Fib 6.92';
-      document.getElementById('opTp2Lbl').textContent   = 'Fib 12.11';
+      // 偵測多/空方向
+      opSide = (r.fibSide === 'short') ? 'short' : 'long';
+      const isShortPanel = opSide === 'short';
+
+      // 更新開單按鈕外觀
+      const submitBtn = document.getElementById('opSubmitBtn');
+      submitBtn.style.background = isShortPanel ? 'var(--r)' : 'var(--ac)';
+      submitBtn.textContent = isShortPanel ? '📤 送出空單' : '📤 送出多單';
+
+      // 開單面板標題
+      document.querySelector('.op-title span') && (document.querySelector('.op-title span').textContent = isShortPanel ? '📋 空單規劃' : '📋 多單規劃');
+
+      if(isShortPanel){
+        // 空單：Entry=Fib1（下緣），SL=Fib0（上緣），TP往下延伸
+        document.getElementById('opEntry').value   = p6(fib1p);
+        document.getElementById('opSl').value      = p6(fib0p);
+        document.getElementById('opTp1').value     = p6(fib692);
+        document.getElementById('opTp2').value     = p6(fib1211);
+        document.getElementById('opEntryLbl').textContent = 'Fib 1（下緣）';
+        document.getElementById('opSlLbl').textContent    = 'Fib 0（上緣）';
+        document.getElementById('opTp1Lbl').textContent   = 'Fib 6.92';
+        document.getElementById('opTp2Lbl').textContent   = 'Fib 12.11';
+      } else {
+        // 多單：原本邏輯
+        document.getElementById('opEntry').value   = p6(fib1p);
+        document.getElementById('opSl').value      = p6(fib0p);
+        document.getElementById('opTp1').value     = p6(fib692);
+        document.getElementById('opTp2').value     = p6(fib1211);
+        document.getElementById('opEntryLbl').textContent = 'Fib 1';
+        document.getElementById('opSlLbl').textContent    = 'Fib 0';
+        document.getElementById('opTp1Lbl').textContent   = 'Fib 6.92';
+        document.getElementById('opTp2Lbl').textContent   = 'Fib 12.11';
+      }
       document.getElementById('orderPanel').style.display='flex';
       calcOrder();
     }
@@ -921,20 +1006,24 @@ function calcOrder(){
   const el    = document.getElementById('opResult');
   if(!entry||!sl||isNaN(entry)||isNaN(sl)){el.innerHTML='';return;}
 
-  const risk   = Math.abs(entry - sl);
-  const riskPct= (risk / entry * 100);
+  const isShort = opSide === 'short';
+  const risk    = Math.abs(entry - sl);
+  const riskPct = (risk / entry * 100);
+  // 多單：TP > entry；空單：TP < entry
+  const tpDir   = isShort ? -1 : 1;
 
-  let html = `<div class="op-res-item"><span class="op-res-lbl">風險幅度</span><span class="op-res-val r">${riskPct.toFixed(2)}%</span></div>`;
+  let html = `<div class="op-res-item"><span class="op-res-lbl">方向</span><span class="op-res-val" style="color:${isShort?'var(--r)':'var(--g)'}">${isShort?'▼ 空單':'▲ 多單'}</span></div>`;
+  html += `<div class="op-res-item"><span class="op-res-lbl">風險幅度</span><span class="op-res-val r">${riskPct.toFixed(2)}%</span></div>`;
 
   if(!isNaN(tp1)&&tp1>0){
-    const r1    = (tp1 - entry) / risk;
-    const gain1 = (tp1 - entry) / entry * 100;
+    const r1    = tpDir * (tp1 - entry) / risk;
+    const gain1 = tpDir * (tp1 - entry) / entry * 100;
     html += `<div class="op-res-item"><span class="op-res-lbl">TP1 R:R</span><span class="op-res-val g">1 : ${r1.toFixed(2)}</span></div>`;
     html += `<div class="op-res-item"><span class="op-res-lbl">TP1 獲利</span><span class="op-res-val g">+${(gain1*tp1pct/100).toFixed(2)}%<span style="color:var(--t3);font-weight:400"> (倉${tp1pct}%)</span></span></div>`;
   }
   if(!isNaN(tp2)&&tp2>0){
-    const r2    = (tp2 - entry) / risk;
-    const gain2 = (tp2 - entry) / entry * 100;
+    const r2    = tpDir * (tp2 - entry) / risk;
+    const gain2 = tpDir * (tp2 - entry) / entry * 100;
     html += `<div class="op-res-item"><span class="op-res-lbl">TP2 R:R</span><span class="op-res-val g">1 : ${r2.toFixed(2)}</span></div>`;
     html += `<div class="op-res-item"><span class="op-res-lbl">TP2 獲利</span><span class="op-res-val g">+${(gain2*tp2pct/100).toFixed(2)}%<span style="color:var(--t3);font-weight:400"> (倉${tp2pct}%)</span></span></div>`;
   }
@@ -966,6 +1055,46 @@ async function saveApiConfig(){
   }catch(e){ document.getElementById('cfgStatus').textContent='✗ '+e.message; }
 }
 
+const TP2_STATUS_LABEL = {
+  watching:   {txt:'監控中…', color:'var(--gold)'},
+  sent_ok:    {txt:'✓ TP2已送出', color:'var(--g)'},
+  sent_fail:  {txt:'✗ 送出失敗', color:'var(--r)'},
+  aborted:    {txt:'主單取消', color:'var(--t3)'},
+  timeout:    {txt:'監控超時', color:'var(--t3)'},
+  cancelled:  {txt:'已取消', color:'var(--t3)'},
+};
+let tp2RefreshTimer = null;
+
+async function refreshTp2Watchers(){
+  const box  = document.getElementById('tp2WatcherBox');
+  const list = document.getElementById('tp2WatcherList');
+  const data = await fetch('/api/tp2_watchers').then(r=>r.json());
+  const active = data.filter(w=>w.status==='watching');
+  if(!data.length){box.style.display='none';return;}
+  box.style.display='block';
+  list.innerHTML = data.map(w=>{
+    const s = TP2_STATUS_LABEL[w.status] || {txt:w.status, color:'var(--t2)'};
+    const cancelBtn = w.status==='watching'
+      ? `<button onclick="cancelTp2('${w.orderId}_${w.symbol}')" style="font-size:10px;background:none;border:1px solid var(--b2);color:var(--t3);border-radius:3px;padding:1px 6px;cursor:pointer">取消</button>`
+      : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;background:var(--bg4);border-radius:4px;margin-bottom:3px;font-size:11px">
+      <span style="color:var(--t2)">${w.symbol} TP2@${w.tp2} × ${w.qty}</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        <span style="color:${s.color}">${s.txt}${w.msg?` (${w.msg})`:''}</span>
+        ${cancelBtn}
+      </span>
+    </div>`;
+  }).join('');
+  // 有監控中就每 8 秒自動重整
+  clearTimeout(tp2RefreshTimer);
+  if(active.length) tp2RefreshTimer = setTimeout(refreshTp2Watchers, 8000);
+}
+
+async function cancelTp2(wid){
+  await fetch(`/api/tp2_watchers/${wid}/cancel`,{method:'POST'});
+  refreshTp2Watchers();
+}
+
 async function checkBalance(){
   const el=document.getElementById('opBalanceInfo');
   el.textContent='查詢中...';
@@ -978,7 +1107,19 @@ async function checkBalance(){
   }catch(e){el.textContent='✗ '+e.message;}
 }
 
-let opOrderType = 'LIMIT';
+let opOrderType  = 'LIMIT';
+let opSide       = 'long';      // 'long' | 'short'
+let opMarginMode = 'isolated';  // 'isolated' | 'cross'
+
+function setMarginMode(m){
+  opMarginMode = m;
+  const isIso = m === 'isolated';
+  document.getElementById('opMarginIso').style.background   = isIso ? 'var(--ac)' : 'var(--bg4)';
+  document.getElementById('opMarginIso').style.color        = isIso ? '#fff' : 'var(--t2)';
+  document.getElementById('opMarginCross').style.background = isIso ? 'var(--bg4)' : 'var(--ac)';
+  document.getElementById('opMarginCross').style.color      = isIso ? 'var(--t2)' : '#fff';
+}
+
 function setOrderType(t){
   opOrderType = t;
   const isLmt = t==='LIMIT';
@@ -1015,7 +1156,8 @@ async function submitOrder(){
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        symbol:r.symbol, order_type:opOrderType,
+        symbol:r.symbol, order_type:opOrderType, side:opSide,
+        margin_mode:opMarginMode,
         entry:isMkt?null:entry, sl,
         tp1:tp1||null, tp1_pct:tp1p,
         tp2:tp2||null, tp2_pct:tp2p,
@@ -1036,13 +1178,15 @@ async function submitOrder(){
     }else{
       resEl.style.color='var(--g)';
       resEl.textContent='✓ 下單成功\n'+JSON.stringify(d.results,null,2);
+      refreshTp2Watchers();
     }
   }catch(e){
     resEl.style.display='block';
     resEl.style.color='var(--r)';
     resEl.textContent='✗ '+e.message;
   }finally{
-    btn.disabled=false; btn.textContent='📤 送出下單';
+    btn.disabled=false;
+    btn.textContent = opSide==='short' ? '📤 送出空單' : '📤 送出多單';
   }
 }
 
@@ -1228,6 +1372,268 @@ document.addEventListener('keydown',e=>{
   if(e.key==='-'||e.key==='_'){zoomChart(0.77);}
   if(e.key==='0'){resetZoom();}
 });
+
+// ── 6.92 統計彈窗 ─────────────────────────────────────────────────────────────
+let statData = null;
+
+function openStatModal(){
+  document.getElementById('statOverlay').classList.add('open');
+  switchStatTab('stat');
+  runBacktest();
+}
+function closeStatModal(){
+  document.getElementById('statOverlay').classList.remove('open');
+}
+function switchStatTab(t){
+  document.getElementById('stab-stat').className = 'stab'+(t==='stat'?' on':'');
+  document.getElementById('stab-list').className = 'stab'+(t==='list'?' on':'');
+  document.getElementById('statContent').style.display = t==='stat' ? '' : 'none';
+  document.getElementById('statList').style.display    = t==='list' ? '' : 'none';
+  if(t==='list' && statData) renderStatList(statData.detail);
+}
+
+function renderStatList(detail){
+  const el = document.getElementById('statList');
+  if(!detail||!detail.length){ el.innerHTML='<div style="color:var(--t3)">無資料</div>'; return; }
+
+  const badge = (result) => {
+    const map = {
+      direct_win: ['直達6.92',  'rgba(38,166,154,.15)', 'var(--g)'],
+      sl_win:     ['停損後到',  'rgba(245,158,11,.15)', 'var(--gold)'],
+      sl_lose:    ['停損未到',  'rgba(239,83,80,.12)',  'var(--r)'],
+      neither:    ['未結',      'var(--bg4)',            'var(--t3)'],
+    };
+    const [txt, bg, col] = map[result] || ['—','','var(--t3)'];
+    return `<span class="ditem-badge" style="background:${bg};color:${col}">${txt}</span>`;
+  };
+
+  function rows(arr){
+    return arr.map(r=>{
+      const bars = r.tpBar!=null ? `${r.tpBar}根到` : (r.slBar!=null ? `${r.slBar}根停損` : '—');
+      const rv   = r.relVol!=null ? `量${r.relVol}x` : '';
+      const sym  = r.symbol.replace('-USDT','');
+      return `<div class="ditem">
+        <span class="ditem-sym">${sym}</span>
+        ${badge(r.result)}
+        <span class="ditem-meta">${bars}${rv?' · '+rv:''}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function section(arr, side){
+    const icon  = side==='long' ? '📈 多單' : '📉 空單';
+    const clr   = side==='long' ? 'var(--g)' : 'var(--r)';
+    const hit   = arr.filter(r=>r.result==='direct_win'||r.result==='sl_win');
+    const nohit = arr.filter(r=>r.result==='sl_lose'||r.result==='neither');
+    if(!arr.length) return '';
+    return `
+      <div style="font-size:13px;font-weight:700;color:${clr};margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--b2)">
+        ${icon} — ${arr.length} 個
+      </div>
+      <div style="font-size:11px;color:var(--t3);margin-bottom:4px">✅ 有止盈 ${hit.length} 個</div>
+      ${rows(hit)||'<div style="color:var(--t3);font-size:12px;margin-bottom:6px">無</div>'}
+      <div style="font-size:11px;color:var(--t3);margin:8px 0 4px">❌ 沒止盈 ${nohit.length} 個</div>
+      ${rows(nohit)||'<div style="color:var(--t3);font-size:12px">無</div>'}`;
+  }
+
+  const longs  = detail.filter(r=>r.fibSide==='long'||(r.fibSide==null));
+  const shorts = detail.filter(r=>r.fibSide==='short');
+
+  el.innerHTML = `<div class="dlist">
+    ${section(longs,  'long')}
+    ${section(shorts, 'short')}
+  </div>`;
+}
+
+async function runBacktest(){
+  const iv = document.getElementById('ivInput').value.trim()||'1h';
+  const mp = document.getElementById('maPeriod').value;
+  const mt = document.getElementById('maType').value;
+  const box = document.getElementById('statContent');
+
+  // 取目前 list 上的幣種（含方向）
+  const symbolsData = allResults.map(r=>({symbol:r.symbol, fibSide:r.fibSide||'long'}));
+  if(!symbolsData.length){
+    box.innerHTML=`<div style="color:var(--r)">請先執行掃描，再開啟統計</div>`;
+    return;
+  }
+  const lm = symbolsData.length;
+  box.innerHTML = `<div style="text-align:center;padding:40px;color:var(--t3)"><div class="spinner" style="margin:0 auto 12px"></div>分析 ${lm} 個幣種，約需 10~30 秒...</div>`;
+
+  try{
+    const resp = await fetch('/api/backtest_fib', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({interval:iv, maPeriod:parseInt(mp), maType:mt, lookForward:100, symbolsData})
+    });
+    const d = await resp.json();
+    if(d.error){ box.innerHTML=`<div style="color:var(--r)">${d.error}</div>`; return; }
+    statData = d;
+
+    const barColor = rate => rate>=60?'var(--g)':rate>=40?'var(--gold)':'var(--r)';
+
+    function renderBuckets(buckets){
+      if(!buckets||!buckets.length) return '<div style="color:var(--t3);font-size:12px">無資料</div>';
+      const maxRate = Math.max(...buckets.map(b=>b.rate), 1);
+      return buckets.map(b=>`
+        <div class="stat-row">
+          <span class="stat-lbl">${b.label}</span>
+          <div class="stat-bar-wrap"><div class="stat-bar-fill" style="width:${b.rate/maxRate*100}%;background:${barColor(b.rate)}"></div></div>
+          <span class="stat-rate" style="color:${barColor(b.rate)}">${b.rate}%</span>
+          <span class="stat-n">${b.hit}/${b.total}</span>
+        </div>`).join('');
+    }
+
+    // 三種結果的色塊
+    const clrDirect = 'var(--g)';
+    const clrSl     = 'var(--gold)';
+    const clrLose   = 'var(--r)';
+
+    function renderBuckets3(buckets){
+      if(!buckets||!buckets.length) return '<div style="color:var(--t3);font-size:12px">無資料</div>';
+      const maxR = Math.max(...buckets.map(b=>b.eventualRate), 1);
+      return buckets.map(b=>{
+        const evC   = b.ev>0   ? clrDirect : clrLose;
+        const evC12 = b.ev1211!=null && b.ev1211>0 ? clrDirect : clrLose;
+        return `
+        <div class="stat-row">
+          <span class="stat-lbl">${b.label}</span>
+          <div class="stat-bar-wrap" style="position:relative">
+            <div style="position:absolute;height:100%;width:${b.directRate/maxR*100}%;background:${clrDirect};border-radius:4px 0 0 4px"></div>
+            <div style="position:absolute;height:100%;left:${b.directRate/maxR*100}%;width:${b.slWinRate/maxR*100}%;background:${clrSl}"></div>
+          </div>
+          <span class="stat-rate" style="color:${clrDirect}">${b.directRate}%</span>
+          <span style="font-size:11px;color:${clrSl};width:36px;text-align:right">+${b.slWinRate}%</span>
+          <span style="font-size:11px;color:${evC};width:48px;text-align:right">${b.ev!=null?(b.ev>=0?'+':'')+b.ev+'R':'—'}</span>
+          <span style="font-size:11px;color:var(--ac);width:40px;text-align:right" title="直達12.11率">${b.direct1211Rate}%↑</span>
+          <span style="font-size:11px;color:${evC12};width:48px;text-align:right" title="12.11期望值">${b.ev1211!=null?(b.ev1211>=0?'+':'')+b.ev1211+'R':'—'}</span>
+          <span class="stat-n">${b.total}筆</span>
+        </div>`;
+      }).join('');
+    }
+
+    const evColor   = d.evPerTrade>0  ? clrDirect : clrLose;
+    const evColor12 = d.ev1211!=null && d.ev1211>0 ? clrDirect : clrLose;
+    box.innerHTML = `
+      <!-- 盈虧比區塊：兩個目標並排 -->
+      <div style="background:var(--bg3);border:1px solid var(--b2);border-radius:8px;padding:12px 16px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--t3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">盈虧比 & 期望值</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <!-- 6.92 -->
+          <div style="background:var(--bg2);border-radius:6px;padding:10px">
+            <div style="font-size:11px;color:var(--ac);font-weight:600;margin-bottom:6px">🎯 目標 Fib 6.92</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:18px;font-weight:700;color:var(--ac)">${d.rrReward}R</div>
+                <div style="font-size:10px;color:var(--t3)">R:R</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:${evColor}">${d.evPerTrade>=0?'+':''}${d.evPerTrade??'—'}R</div>
+                <div style="font-size:10px;color:var(--t3)">每筆期望值</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:${clrDirect}">${d.directRate??'—'}%</div>
+                <div style="font-size:10px;color:var(--t3)">直達率</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:var(--t3)">${d.breakEvenWinRate??'—'}%</div>
+                <div style="font-size:10px;color:var(--t3)">保本門檻</div>
+              </div>
+            </div>
+          </div>
+          <!-- 12.11 -->
+          <div style="background:var(--bg2);border-radius:6px;padding:10px">
+            <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:6px">🚀 目標 Fib 12.11</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:18px;font-weight:700;color:#a78bfa">11.11R</div>
+                <div style="font-size:10px;color:var(--t3)">R:R</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:${evColor12}">${d.ev1211!=null?(d.ev1211>=0?'+':'')+d.ev1211+'R':'—'}</div>
+                <div style="font-size:10px;color:var(--t3)">每筆期望值</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:#a78bfa">${d.direct1211Rate??'—'}%</div>
+                <div style="font-size:10px;color:var(--t3)">直達率</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:var(--t3)">${d.breakEven1211??'—'}%</div>
+                <div style="font-size:10px;color:var(--t3)">保本門檻</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 主要 KPI -->
+      <div class="stat-hero">
+        <div class="stat-kpi">
+          <div class="sv" style="color:${clrDirect}">${d.directRate}%</div>
+          <div class="sl">直達6.92（未停損）</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:2px">平均 ${d.avgDirectBars??'—'} 根</div>
+        </div>
+        <div class="stat-kpi">
+          <div class="sv" style="color:#a78bfa">${d.direct1211Rate??0}%</div>
+          <div class="sl">直達12.11（未停損）</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:2px">平均 ${d.avg1211Bars??'—'} 根</div>
+        </div>
+        <div class="stat-kpi">
+          <div class="sv" style="color:${clrSl}">${d.slWinRate}%</div>
+          <div class="sl">停損後仍到6.92</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:2px">平均 ${d.avgSlBars??'—'} 根後到</div>
+        </div>
+        <div class="stat-kpi">
+          <div class="sv">${d.total}</div>
+          <div class="sl">樣本（${d.neither}筆未結）</div>
+        </div>
+      </div>
+      <!-- 圖例 -->
+      <div style="display:flex;gap:14px;font-size:11px;margin-bottom:14px;flex-wrap:wrap">
+        <span><span style="color:${clrDirect}">■</span> 直達6.92</span>
+        <span><span style="color:#a78bfa">■</span> 直達12.11（${d.dw1211??0}筆）</span>
+        <span><span style="color:${clrSl}">■</span> 停損後到6.92</span>
+        <span><span style="color:${clrLose}">■</span> 停損未到 ${d.slLose}筆</span>
+        <span style="color:var(--t3);margin-left:auto">↑列=12.11直達率 / 最右=12.11期望值</span>
+      </div>
+      <div class="stat-sec">
+        <div class="stat-sec-title">📊 相對成交量（relVol）</div>
+        ${renderBuckets3(d.volBuckets)}
+      </div>
+      <div class="stat-sec">
+        <div class="stat-sec-title">💸 資金費率</div>
+        ${renderBuckets3(d.fundingBuckets)}
+      </div>
+      <div class="stat-sec">
+        <div class="stat-sec-title">📏 距均線距離（bar8）</div>
+        ${renderBuckets3(d.maBuckets)}
+      </div>
+      <div style="font-size:11px;color:var(--t3);margin-top:8px">
+        確認：bar8碰1.73 | 進場：bar9起回Fib1限價 | 止損：Fib0 | 目標：6.92 / 12.11 | ${iv.toUpperCase()} ${mt}(${mp}) | 往後看 ${d.lookForward} 根
+      </div>`;
+  }catch(e){
+    box.innerHTML=`<div style="color:var(--r)">錯誤：${e.message}</div>`;
+  }
+}
 </script>
+
+<!-- 統計彈窗 -->
+<div class="stat-overlay" id="statOverlay" onclick="if(event.target===this)closeStatModal()">
+  <div class="stat-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div>
+        <div class="stat-title">📐 Fib 6.92 / 12.11 回測統計</div>
+        <div class="stat-sub">確認：bar8 碰 1.73 ｜ 進場：bar9+ 回 Fib 1 限價 ｜ 止損：Fib 0 ｜ 目標：6.92 & 12.11</div>
+      </div>
+      <button onclick="closeStatModal()" style="background:none;border:none;color:var(--t3);font-size:20px;cursor:pointer;padding:4px">✕</button>
+    </div>
+    <!-- 分頁 -->
+    <div class="stab-bar">
+      <div class="stab on" id="stab-stat" onclick="switchStatTab('stat')">📊 統計</div>
+      <div class="stab"    id="stab-list" onclick="switchStatTab('list')">📋 清單</div>
+    </div>
+    <div id="statContent"></div>
+    <div id="statList" style="display:none"></div>
+  </div>
+</div>
 </body>
 </html>
