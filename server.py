@@ -2,7 +2,7 @@
 BingX MA + Fibonacci 篩選器（永續合約版）
 python server.py
 """
-import threading, webbrowser, time, random, traceback, hmac, hashlib, json, os
+import threading, webbrowser, time, random, traceback, hmac, hashlib, json, os, signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 from flask import Flask, jsonify, request, render_template
@@ -517,6 +517,19 @@ def scan():
             filtered = [s for s in symbols if abs(tickers[s]["changePct"]) >= fval]
             filtered.sort(key=lambda s: tickers[s]["quoteVol"], reverse=True)
             symbols = filtered[:limit]
+        elif ftype == "chgrank":
+            # 漲跌幅排行：取漲幅前半 + 跌幅前半
+            # 多頭候選來自漲榜，空頭候選來自跌榜
+            half = max(limit // 2, 1)
+            top_up = sorted(symbols, key=lambda s: tickers[s]["changePct"], reverse=True)[:half]
+            top_dn = sorted(symbols, key=lambda s: tickers[s]["changePct"])[:half]
+            seen = set()
+            merged = []
+            for s in top_up + top_dn:
+                if s not in seen:
+                    seen.add(s)
+                    merged.append(s)
+            symbols = merged[:limit]
         elif ftype == "random":
             random.shuffle(symbols)
             symbols = symbols[:limit]
@@ -547,10 +560,17 @@ def scan():
                 fib_groups_long  = []
                 fib_groups_short = []
                 if use_fib:
-                    fib_groups_long  = find_all_fibs(klines, mas)       if is_above else []
-                    fib_groups_short = find_all_fibs_short(klines, mas) if not is_above else []
+                    # 多空都搜，不限方向
+                    fib_groups_long  = find_all_fibs(klines, mas)
+                    fib_groups_short = find_all_fibs_short(klines, mas)
                     if not fib_groups_long and not fib_groups_short: return None
-                fib_groups = fib_groups_long or fib_groups_short
+                    # 標記方向、合併、按時間排序、取最新5組
+                    for g in fib_groups_long:  g["side"] = "long"
+                    for g in fib_groups_short: g["side"] = "short"
+                fib_groups = sorted(
+                    fib_groups_long + fib_groups_short,
+                    key=lambda g: g["barA"]
+                )[-5:]
 
                 tk         = tickers.get(sym, {})
                 change_pct = tk.get("changePct", 0)
@@ -573,17 +593,22 @@ def scan():
                 ma50   = ma_series(buf, mp, mt)[-n:]
 
                 fib_out = []
+                barA_time = None
                 if fib_groups:
-                    grp    = fib_groups[-1]
-                    barA_r = grp["barA"] - offset
-                    barB_r = grp["barB"] - offset
-                    if barB_r >= 0:
+                    # 統計用：最新那組的 timestamp
+                    barA_time = klines[fib_groups[-1]["barA"]][0]
+                    for grp in fib_groups:
+                        barA_r = grp["barA"] - offset
+                        barB_r = grp["barB"] - offset
+                        if barB_r < 0:
+                            continue
                         fib_out.append({
                             "fib0":   grp["fib0"],
                             "fib1":   grp["fib1"],
                             "levels": [list(lv) for lv in grp["levels"]],
-                            "barA":   barA_r,
+                            "barA":   max(barA_r, -offset),
                             "barB":   barB_r,
+                            "side":   grp.get("side", "long"),
                         })
 
                 return {
@@ -602,7 +627,8 @@ def scan():
                     "maSeries": ma50,
                     "fibs":        fib_out,
                     "fibCount":    len(fib_out),
-                    "fibSide":     "short" if fib_groups_short and not fib_groups_long else "long",
+                    "fibSide":     fib_groups[-1].get("side", "long") if fib_groups else "long",
+                    "barATime":    barA_time,
                     "volChangePct": vol_change,
                     "relVol":      round(rel_vol, 2) if rel_vol is not None else None,
                     "funding":     funding,
@@ -645,7 +671,6 @@ def kline_detail():
     iv       = parse_iv(request.args.get("interval", "1h"))
     mp       = int(request.args.get("maPeriod", 20))
     mt       = request.args.get("maType", "SMA")
-    fib_side = request.args.get("fibSide", "long")   # 'long' 或 'short'
     try:
         klines = get_klines(sym, iv, 300)
         if not klines:
@@ -653,20 +678,20 @@ def kline_detail():
         closes = [k[4] for k in klines]
         mas    = ma_series(closes, mp, mt)
 
-        # 依方向選擇 fib 搜尋函式（全歷史）
-        if fib_side == "short":
-            fibs = find_all_fibs_short(klines, mas, strict=False)
-        else:
-            fibs = find_all_fibs(klines, mas, strict=False)
+        # 多空都搜（不限方向），合併後取最新 5 組
+        fibs_long  = find_all_fibs(klines, mas, strict=False)
+        fibs_short = find_all_fibs_short(klines, mas, strict=False)
+        for g in fibs_long:  g["side"] = "long"
+        for g in fibs_short: g["side"] = "short"
 
-        # 過濾：只保留 fib0 在當前價格 ±50% 以內的組
-        cur_price = closes[-1]
-        fibs = [g for g in fibs
-                if cur_price > 0 and abs(g["fib0"] - cur_price) / cur_price <= 0.5]
+        # 合併多空、依 barA 排序，取最新 5 組（不過濾價格距離）
+        all_fibs = sorted(fibs_long + fibs_short, key=lambda g: g["barA"])
+        fibs = all_fibs[-5:]   # 最新 5 組
 
-        # 回傳最新 1 組
+        latest_side = fibs[-1]["side"] if fibs else "long"
+
         fibs_out = []
-        for grp in fibs[-1:]:
+        for grp in fibs:
             fibs_out.append({
                 "fib0":   grp["fib0"],
                 "fib1":   grp["fib1"],
@@ -675,10 +700,11 @@ def kline_detail():
                 "barB":   grp["barB"],
                 "bar5":   grp["barA"] + 4,
                 "bar8":   grp["barA"] + 7,
+                "side":   grp["side"],
             })
         return jsonify({
             "symbol":   sym,
-            "fibSide":  fib_side,
+            "fibSide":  latest_side,
             "opens":    [k[1] for k in klines],
             "highs":    [k[2] for k in klines],
             "lows":     [k[3] for k in klines],
@@ -1007,267 +1033,160 @@ def backtest_fib():
         funding_map = get_funding_rates()
 
         def process_sym(sym_info):
-            sym      = sym_info["symbol"]
-            fib_side = sym_info.get("fibSide", "long")
+            """
+            與彈窗 modal 邏輯完全一致：
+              進場 = 第9根（barA+8）開盤市價
+              多頭 SL = min(lows[barA, barB, bar8])
+              空頭 SL = max(highs[barA, barB, bar8])
+              統計：hitTP1(6.92) / hitTP2(12.11) / hitBeyond(收盤超 12.11) / hitSL
+
+            注意：與 kline_detail 使用同樣的 300 根 K 線，
+            避免條件③（barA 後無收盤低於 barA.low）在大量歷史資料下
+            把所有組都排除。
+            """
+            sym = sym_info["symbol"]
             try:
-                klines = get_klines(sym, iv, 500)
+                klines = get_klines(sym, iv, 300)   # 與 kline_detail 一致
                 if len(klines) < mp + 20:
                     return []
-                closes = [k[4] for k in klines]
-                mas    = ma_series(closes, mp, mt)
+                closes  = [k[4] for k in klines]
+                opens   = [k[1] for k in klines]
+                highs   = [k[2] for k in klines]
+                lows    = [k[3] for k in klines]
+                mas     = ma_series(closes, mp, mt)
+                n       = len(klines)
 
-                if fib_side == "short":
-                    groups = find_all_fibs_short(klines, mas, strict=False)
-                else:
-                    groups = find_all_fibs(klines, mas, strict=False)
+                # 多空都搜，合併取最新 5 組（與 kline_detail 一致）
+                fibs_long  = find_all_fibs(klines, mas, strict=False)
+                fibs_short = find_all_fibs_short(klines, mas, strict=False)
+                for g in fibs_long:  g["side"] = "long"
+                for g in fibs_short: g["side"] = "short"
+                all_grps = sorted(fibs_long + fibs_short, key=lambda g: g["barA"])[-5:]
+
+                if not all_grps:
+                    return []
 
                 recs = []
-                for grp in groups:
-                    bar8 = grp["barA"] + 7   # 確認棒（碰 1.73）
-                    bar9 = grp["barA"] + 8   # 從這根開始找回 Fib1 的進場機會
-                    if bar9 >= len(klines):
+                for grp in all_grps:
+                    b1   = grp["barA"]
+                    b2   = grp["barB"]
+                    b8   = grp["barA"] + 7
+                    b9   = grp["barA"] + 8
+                    side = grp["side"]
+                    if b9 >= n:
                         continue
 
-                    # Fib 價位
-                    fib0   = grp["fib0"]
-                    fib1   = grp["fib1"]
-                    fib173 = next((p for r, p, _ in grp["levels"] if abs(r - 1.73) < 0.01), None)
-                    fib692 = next((p for r, p, _ in grp["levels"] if abs(r - 6.92) < 0.01), None)
-                    if fib692 is None or fib173 is None:
+                    fib692  = next((p for r,p,_ in grp["levels"] if abs(r-6.92)  < 0.01), None)
+                    fib1211 = next((p for r,p,_ in grp["levels"] if abs(r-12.11) < 0.01), None)
+                    fib1730 = next((p for r,p,_ in grp["levels"] if abs(r-17.3)  < 0.01), None)
+                    if fib692 is None:
                         continue
 
-                    # bar8 必須真的碰到 1.73（確認信號）
-                    k8 = klines[bar8]
-                    if fib_side == "short":
-                        if not (k8[3] <= fib173 <= k8[2]):
-                            continue
+                    entry = opens[b9]
+
+                    if side == "short":
+                        sl_p = max(
+                            highs[b1] if 0<=b1<n else -1e9,
+                            highs[b2] if 0<=b2<n else -1e9,
+                            highs[b8] if 0<=b8<n else -1e9,
+                        )
                     else:
-                        if not (k8[3] <= fib173 <= k8[2]):
-                            continue
+                        sl_p = min(
+                            lows[b1] if 0<=b1<n else 1e9,
+                            lows[b2] if 0<=b2<n else 1e9,
+                            lows[b8] if 0<=b8<n else 1e9,
+                        )
 
-                    # 從 bar9 開始，找第一根回到 Fib1 的進場棒（限價單）
-                    entry_bar = None
-                    search_end = min(bar9 + look_fwd, len(klines))
-                    for j in range(bar9, search_end):
-                        k = klines[j]
-                        if fib_side == "short":
-                            # 空單：回升到 Fib1（高點 >= fib1）才進場
-                            if k[2] >= fib1:
-                                entry_bar = j
-                                break
+                    hit_sl = hit_tp1 = hit_tp2 = hit_tp3 = False
+                    for i in range(b9, n):   # 含進場棒（b9）本身
+                        if hit_sl: break   # 已停損，不再掃
+                        if side == "short":
+                            if not hit_tp1:
+                                if lows[i] <= fib692:   # 先到 6.92 → TP1（同根優先）
+                                    hit_tp1 = True
+                                elif highs[i] >= sl_p:  # 未到 6.92 先碰 SL
+                                    hit_sl = True
+                            if hit_tp1:
+                                if not hit_tp2 and fib1211 and lows[i] <= fib1211: hit_tp2 = True
+                                if not hit_tp3 and fib1730 and lows[i] <= fib1730: hit_tp3 = True
                         else:
-                            # 多單：回落到 Fib1（低點 <= fib1）才進場
-                            if k[3] <= fib1:
-                                entry_bar = j
-                                break
+                            if not hit_tp1:
+                                if highs[i] >= fib692:  # 先到 6.92 → TP1（同根優先）
+                                    hit_tp1 = True
+                                elif lows[i] <= sl_p:   # 未到 6.92 先碰 SL
+                                    hit_sl = True
+                            if hit_tp1:
+                                if not hit_tp2 and fib1211 and highs[i] >= fib1211: hit_tp2 = True
+                                if not hit_tp3 and fib1730 and highs[i] >= fib1730: hit_tp3 = True
 
-                    if entry_bar is None:
-                        continue   # 沒有回到 Fib1，跳過
-
-                    # 需要足夠的未來K棒
-                    if entry_bar + look_fwd >= len(klines) - 1:
-                        continue
-
-                    fib1211 = next((p for r, p, _ in grp["levels"] if abs(r - 12.11) < 0.01), None)
-
-                    future = klines[entry_bar + 1: entry_bar + 1 + look_fwd]
-
-                    sl_bar   = None
-                    tp692_bar  = None
-                    tp1211_bar = None
-                    for i, k in enumerate(future):
-                        if fib_side == "short":
-                            hit_sl   = k[2] >= fib0
-                            hit_692  = k[3] <= fib692
-                            hit_1211 = fib1211 is not None and k[3] <= fib1211
-                        else:
-                            hit_sl   = k[3] <= fib0
-                            hit_692  = k[2] >= fib692
-                            hit_1211 = fib1211 is not None and k[2] >= fib1211
-
-                        if hit_sl   and sl_bar    is None: sl_bar    = i
-                        if hit_692  and tp692_bar  is None: tp692_bar  = i
-                        if hit_1211 and tp1211_bar is None: tp1211_bar = i
-
-                    # 6.92 結果
-                    if tp692_bar is not None and (sl_bar is None or tp692_bar < sl_bar):
-                        result692 = "direct_win"
-                    elif sl_bar is not None and tp692_bar is not None:
-                        result692 = "sl_win"
-                    elif sl_bar is not None:
-                        result692 = "sl_lose"
-                    else:
-                        result692 = "neither"
-
-                    # 12.11 結果（在 6.92 直達基礎上繼續往前）
-                    if tp1211_bar is not None and (sl_bar is None or tp1211_bar < sl_bar):
-                        result1211 = "direct_win"
-                    elif sl_bar is not None and tp1211_bar is not None:
-                        result1211 = "sl_win"
-                    elif sl_bar is not None:
-                        result1211 = "sl_lose"
-                    else:
-                        result1211 = "neither"
-
-                    # relVol at entry_bar
-                    rel_vol = None
-                    if entry_bar >= 25:
-                        avg = sum(klines[i][5] for i in range(entry_bar - 24, entry_bar)) / 24
-                        rel_vol = round(klines[entry_bar][5] / avg, 2) if avg > 0 else None
-
-                    # MA 距離%（bar8，確認棒）
-                    ma_dist = None
-                    if mas[bar8]:
-                        ma_dist = round((klines[bar8][4] - mas[bar8]) / mas[bar8] * 100, 2)
-
+                    risk_amt = abs(entry - sl_p)
+                    rr692  = round(abs(fib692  - entry) / risk_amt, 2) if risk_amt > 0 else None
+                    rr1211 = round(abs(fib1211 - entry) / risk_amt, 2) if (risk_amt > 0 and fib1211) else None
+                    rr1730 = round(abs(fib1730 - entry) / risk_amt, 2) if (risk_amt > 0 and fib1730) else None
                     recs.append({
-                        "symbol":      sym,
-                        "fibSide":     fib_side,
-                        "result":      result692,
-                        "result1211":  result1211,
-                        "slBar":       sl_bar,
-                        "tpBar":       tp692_bar,
-                        "tp1211Bar":   tp1211_bar,
-                        "relVol":      rel_vol,
-                        "maDistPct":   ma_dist,
-                        "funding":     funding_map.get(sym),
+                        "symbol":     sym,
+                        "side":       side,
+                        "entry":      round(entry, 6),
+                        "slPrice":    round(sl_p, 6),
+                        "rr692":      rr692,
+                        "rr1211":     rr1211,
+                        "rr1730":     rr1730,
+                        "hitTP1":     hit_tp1,
+                        "hitTP2":     hit_tp2,
+                        "hitTP3":     hit_tp3,
+                        "hitSL":      hit_sl,
+                        "ongoing":    b9 >= n - 2,
                     })
                 return recs
-            except:
+            except Exception as _e:
+                print(f"[backtest] {sym} error: {_e}")
                 return []
 
         records = []
-        with ThreadPoolExecutor(max_workers=12) as ex:
+        with ThreadPoolExecutor(max_workers=6) as ex:
             futures = [ex.submit(process_sym, s) for s in symbols_data]
             for f in as_completed(futures):
                 records.extend(f.result())
 
         if not records:
-            return jsonify({"error": "沒有找到符合的 Fib 組", "total": 0})
+            return jsonify({"error": "沒有找到符合的 Fib 組", "totalGroups": 0})
 
         total      = len(records)
-        direct_win = sum(1 for r in records if r["result"] == "direct_win")
-        sl_win     = sum(1 for r in records if r["result"] == "sl_win")
-        sl_lose    = sum(1 for r in records if r["result"] == "sl_lose")
-        neither    = sum(1 for r in records if r["result"] == "neither")
+        ongoing    = sum(1 for r in records if r.get("ongoing"))
+        valid      = total - ongoing
+        cnt_tp1    = sum(1 for r in records if r["hitTP1"])
+        cnt_tp2    = sum(1 for r in records if r["hitTP2"])
+        cnt_tp3    = sum(1 for r in records if r["hitTP3"])
+        cnt_sl     = sum(1 for r in records if r["hitSL"])
+        rr692_list  = [r["rr692"]  for r in records if r.get("rr692")  is not None]
+        rr1211_list = [r["rr1211"] for r in records if r.get("rr1211") is not None]
+        rr1730_list = [r["rr1730"] for r in records if r.get("rr1730") is not None]
+        avg_rr692   = round(sum(rr692_list)  / len(rr692_list),  2) if rr692_list  else None
+        avg_rr1211  = round(sum(rr1211_list) / len(rr1211_list), 2) if rr1211_list else None
+        avg_rr1730  = round(sum(rr1730_list) / len(rr1730_list), 2) if rr1730_list else None
 
-        # 12.11 統計
-        dw1211 = sum(1 for r in records if r["result1211"] == "direct_win")
-        sw1211 = sum(1 for r in records if r["result1211"] == "sl_win")
-
-        # 平均到達根數
-        direct_bars  = [r["tpBar"]     for r in records if r["result"]    == "direct_win" and r["tpBar"]     is not None]
-        sl_bars      = [r["tpBar"]     for r in records if r["result"]    == "sl_win"     and r["tpBar"]     is not None]
-        direct1211_b = [r["tp1211Bar"] for r in records if r["result1211"]== "direct_win" and r["tp1211Bar"] is not None]
-        avg_direct   = round(sum(direct_bars)  / len(direct_bars),  1) if direct_bars  else None
-        avg_sl       = round(sum(sl_bars)      / len(sl_bars),      1) if sl_bars      else None
-        avg_1211     = round(sum(direct1211_b) / len(direct1211_b), 1) if direct1211_b else None
-
-        # ── 盈虧比計算 ────────────────────────────────────────────────
-        # entry = Fib 1, SL = Fib 0
-        # TP1 = Fib 6.92 → Reward = 5.92R
-        # TP2 = Fib 12.11 → Reward = 11.11R
-        RR_692  = 5.92
-        RR_1211 = 11.11
-
-        effective = total - neither
-        if effective > 0:
-            win_rate       = direct_win / effective
-            loss_rate      = (sl_win + sl_lose) / effective
-            ev_per_trade   = round(win_rate * RR_692  - loss_rate * 1.0, 3)
-            ev_1211        = round(dw1211   / effective * RR_1211 - loss_rate * 1.0, 3)
-            break_even     = round(1 / (1 + RR_692)  * 100, 1)
-            break_even1211 = round(1 / (1 + RR_1211) * 100, 1)
-            actual_win_pct = round(win_rate * 100, 1)
-        else:
-            ev_per_trade = ev_1211 = break_even = break_even1211 = actual_win_pct = None
-
-        def bucket(key, bkts):
-            out = []
-            for lbl, fn in bkts:
-                g = [r for r in records if r.get(key) is not None and fn(r[key])]
-                if not g: continue
-                dw   = sum(1 for r in g if r["result"]    == "direct_win")
-                sw   = sum(1 for r in g if r["result"]    == "sl_win")
-                sl   = sum(1 for r in g if r["result"]    in ("sl_win","sl_lose"))
-                dw12 = sum(1 for r in g if r["result1211"]== "direct_win")
-                eff  = len(g) - sum(1 for r in g if r["result"] == "neither")
-                ev   = round((dw/eff)*RR_692  - (sl/eff)*1.0, 2) if eff > 0 else None
-                ev12 = round((dw12/eff)*RR_1211 - (sl/eff)*1.0, 2) if eff > 0 else None
-                out.append({
-                    "label":          lbl,
-                    "total":          len(g),
-                    "directWin":      dw,
-                    "slWin":          sw,
-                    "directRate":     round(dw   / len(g) * 100, 1),
-                    "slWinRate":      round(sw   / len(g) * 100, 1),
-                    "eventualRate":   round((dw + sw) / len(g) * 100, 1),
-                    "ev":             ev,
-                    "direct1211":     dw12,
-                    "direct1211Rate": round(dw12 / len(g) * 100, 1),
-                    "ev1211":         ev12,
-                })
-            return out
-
-        vol_buckets     = bucket("relVol", [
-            ("<1x",  lambda v: v < 1),
-            ("1-2x", lambda v: 1 <= v < 2),
-            ("2-3x", lambda v: 2 <= v < 3),
-            (">3x",  lambda v: v >= 3),
-        ])
-        funding_buckets = bucket("funding", [
-            ("<-0.01%",  lambda v: v < -0.01),
-            ("-0.01~0%", lambda v: -0.01 <= v < 0),
-            ("0~0.01%",  lambda v: 0 <= v < 0.01),
-            (">0.01%",   lambda v: v >= 0.01),
-        ])
-        ma_buckets = bucket("maDistPct", [
-            ("<1%",  lambda v: abs(v) < 1),
-            ("1-3%", lambda v: 1 <= abs(v) < 3),
-            ("3-5%", lambda v: 3 <= abs(v) < 5),
-            (">5%",  lambda v: abs(v) >= 5),
-        ])
-
-        # 每個 symbol 取最佳結果（同一幣種可能有多組 fib）
-        # 優先順序：direct_win > sl_win > sl_lose > neither
-        priority = {"direct_win":0,"sl_win":1,"sl_lose":2,"neither":3}
-        sym_best = {}
+        # 明細：依幣種分組，每幣種顯示所有組
+        sym_groups = {}
         for r in records:
-            sym = r["symbol"]
-            if sym not in sym_best or priority[r["result"]] < priority[sym_best[sym]["result"]]:
-                sym_best[sym] = r
-
-        detail_list = sorted(sym_best.values(), key=lambda r: priority[r["result"]])
+            sym_groups.setdefault(r["symbol"], []).append(r)
+        detail_list = [
+            {"symbol": sym, "groups": grps}
+            for sym, grps in sorted(sym_groups.items())
+        ]
 
         return jsonify({
-            "total":       total,
-            "directWin":   direct_win,
-            "slWin":       sl_win,
-            "slLose":      sl_lose,
-            "neither":     neither,
-            "directRate":  round(direct_win / total * 100, 1),
-            "slWinRate":   round(sl_win     / total * 100, 1),
-            "eventualRate":round((direct_win + sl_win) / total * 100, 1),
-            "avgDirectBars": avg_direct,
-            "avgSlBars":     avg_sl,
-            "rrReward":      round(RR_692, 2),
-            "evPerTrade":    ev_per_trade,
-            "breakEvenWinRate": break_even,
-            "actualWinPct":  actual_win_pct,
-            "dw1211":        dw1211,
-            "sw1211":        sw1211,
-            "direct1211Rate":round(dw1211 / total * 100, 1) if total else 0,
-            "eventual1211Rate":round((dw1211 + sw1211) / total * 100, 1) if total else 0,
-            "avg1211Bars":   round(sum(direct1211_b)/len(direct1211_b),1) if direct1211_b else None,
-            "ev1211":        ev_1211,
-            "breakEven1211": break_even1211,
-            "lookForward":   look_fwd,
-            "symbolCount":   len(symbols_data),
-            "fibSide":       fib_side,
-            "volBuckets":    vol_buckets,
-            "fundingBuckets":funding_buckets,
-            "maBuckets":     ma_buckets,
-            "detail":        detail_list,
+            "totalGroups":  total,
+            "validGroups":  valid,
+            "ongoing":      ongoing,
+            "cntTP1":       cnt_tp1,
+            "cntTP2":       cnt_tp2,
+            "cntTP3":       cnt_tp3,
+            "cntSL":        cnt_sl,
+            "avgRR692":     avg_rr692,
+            "avgRR1211":    avg_rr1211,
+            "avgRR1730":    avg_rr1730,
+            "symbolCount":  len(symbols_data),
+            "detail":       detail_list,
         })
 
     except Exception as e:
@@ -1289,6 +1208,23 @@ def cancel_tp2_watcher(wid):
         tp2_watchers[wid]["status"] = "cancelled"
         return jsonify({"ok": True})
     return jsonify({"error": "找不到此監控"}), 404
+
+_last_ping = time.time()
+
+@app.route("/api/ping", methods=["POST"])
+def ping():
+    global _last_ping
+    _last_ping = time.time()
+    return jsonify({"ok": True})
+
+def _watchdog(timeout=90):
+    """本機模式：超過 timeout 秒沒收到 ping 就關閉 server"""
+    time.sleep(timeout + 5)   # 等前端先連上再開始監控
+    while True:
+        time.sleep(2)
+        if time.time() - _last_ping > timeout:
+            print("\n[watchdog] 瀏覽器已關閉，server 自動停止。")
+            os._exit(0)
 
 @app.route("/api/account_balance", methods=["GET"])
 def account_balance():
@@ -1316,4 +1252,5 @@ if __name__ == "__main__":
     print("=" * 50)
     if is_dev:
         threading.Thread(target=open_browser, daemon=True).start()
+        threading.Thread(target=_watchdog, daemon=True).start()
     app.run(host=host, port=port, debug=False)
