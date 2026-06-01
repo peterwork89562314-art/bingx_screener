@@ -17,7 +17,8 @@ BINGX_DEMO = "https://open-api-vst.bingx.com"   # VST 模擬盤
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 def load_config():
-    # 雲端優先從環境變數讀取，本機則讀 config.json
+    # 優先讀環境變數（雲端）；否則讀 config.json（本機）
+    # config.json 支援兩種格式：api_key 或 BINGX_API_KEY
     env_key    = os.environ.get("BINGX_API_KEY", "")
     env_secret = os.environ.get("BINGX_API_SECRET", "")
     env_demo   = os.environ.get("BINGX_DEMO_MODE", "").lower()
@@ -28,13 +29,20 @@ def load_config():
             "demo_mode":  env_demo != "false",
         }
     if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
+        with open(CONFIG_PATH, encoding='utf-8') as f:
+            d = json.load(f)
+        # 支援大寫格式（BINGX_API_KEY）或小寫格式（api_key）
+        key    = d.get("BINGX_API_KEY")    or d.get("api_key",    "")
+        secret = d.get("BINGX_API_SECRET") or d.get("api_secret", "")
+        demo   = d.get("BINGX_DEMO_MODE")  or d.get("demo_mode",  True)
+        if isinstance(demo, str):
+            demo = demo.lower() != "false"
+        return {"api_key": key, "api_secret": secret, "demo_mode": bool(demo)}
     return {"api_key": "", "api_secret": "", "demo_mode": True}
 
 def save_config(cfg):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+    with open(CONFIG_PATH, "w", encoding='utf-8') as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 # ── HTTP（公開）───────────────────────────────────────────────────────────────
 def bget(path, params=None):
@@ -1282,7 +1290,7 @@ def _bg_run_once():
     max_margin  = float(s.get("max_margin_usdt", 0))
 
     log = {
-        "time":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time":    (datetime.utcnow() + __import__('datetime').timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
         "scanned": 0, "found": 0, "traded": 0, "skipped": 0,
         "trades":  [], "error": None,
     }
