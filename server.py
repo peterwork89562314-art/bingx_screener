@@ -489,6 +489,8 @@ def index():
 
 @app.route("/api/scan")
 def scan():
+    global _scanning
+    _scanning = True
     try:
         iv        = parse_iv(request.args.get("interval", "1h"))
         mp        = int(request.args.get("maPeriod", 20))
@@ -541,7 +543,7 @@ def scan():
         funding_map = get_funding_rates()
         oi_map      = get_open_interests()
 
-        kline_limit = min(max(mp * 4, 150), 300)
+        kline_limit = min(max(mp * 4, 150), 600)
         results, errors = [], []
 
         def process_symbol(sym):
@@ -570,7 +572,7 @@ def scan():
                 fib_groups = sorted(
                     fib_groups_long + fib_groups_short,
                     key=lambda g: g["barA"]
-                )[-5:]
+                )[-10:]
 
                 tk         = tickers.get(sym, {})
                 change_pct = tk.get("changePct", 0)
@@ -586,7 +588,7 @@ def scan():
                 funding = funding_map.get(sym, None)
                 oi_usdt = oi_map.get(sym, None)
 
-                n      = min(60, len(klines))
+                n      = min(100, len(klines))
                 recent = klines[-n:]
                 offset = len(klines) - n
                 buf    = closes[-(n + mp):]
@@ -594,6 +596,9 @@ def scan():
 
                 fib_out = []
                 barA_time = None
+                raw_highs = [k[2] for k in klines]
+                raw_lows  = [k[3] for k in klines]
+                raw_n     = len(klines)
                 if fib_groups:
                     # 統計用：最新那組的 timestamp
                     barA_time = klines[fib_groups[-1]["barA"]][0]
@@ -602,13 +607,53 @@ def scan():
                         barB_r = grp["barB"] - offset
                         if barB_r < 0:
                             continue
+
+                        # ── 預計算 ongoing / slPrice / tp1Price（用完整 klines）──
+                        isSh = grp.get("side") == "short"
+                        gA = grp["barA"]
+                        gB = grp["barB"]
+                        g8 = gA + 7
+                        b9 = gA + 8
+                        if isSh:
+                            sl_p = max(
+                                raw_highs[gA] if 0 <= gA < raw_n else -1e18,
+                                raw_highs[gB] if 0 <= gB < raw_n else -1e18,
+                                raw_highs[g8] if 0 <= g8 < raw_n else -1e18,
+                            )
+                        else:
+                            sl_p = min(
+                                raw_lows[gA] if 0 <= gA < raw_n else 1e18,
+                                raw_lows[gB] if 0 <= gB < raw_n else 1e18,
+                                raw_lows[g8] if 0 <= g8 < raw_n else 1e18,
+                            )
+                        tp1_p = next((p for rv, p, _ in grp["levels"] if abs(rv - 6.92) < 0.01), None)
+                        ongoing = False
+                        b9_reached = (b9 < raw_n)
+                        if b9_reached and tp1_p and abs(sl_p) < 1e17:
+                            cur_p = closes[-1]
+                            valid_dir = (not isSh and cur_p > sl_p) or (isSh and cur_p < sl_p)
+                            if valid_dir:
+                                hit_sl = hit_tp1 = False
+                                for i in range(b9, raw_n):
+                                    if not isSh:
+                                        if raw_highs[i] >= tp1_p: hit_tp1 = True; break
+                                        if raw_lows[i]  <= sl_p:  hit_sl  = True; break
+                                    else:
+                                        if raw_lows[i]  <= tp1_p: hit_tp1 = True; break
+                                        if raw_highs[i] >= sl_p:  hit_sl  = True; break
+                                ongoing = not hit_sl and not hit_tp1
+
                         fib_out.append({
-                            "fib0":   grp["fib0"],
-                            "fib1":   grp["fib1"],
-                            "levels": [list(lv) for lv in grp["levels"]],
-                            "barA":   max(barA_r, -offset),
-                            "barB":   barB_r,
-                            "side":   grp.get("side", "long"),
+                            "fib0":       grp["fib0"],
+                            "fib1":       grp["fib1"],
+                            "levels":     [list(lv) for lv in grp["levels"]],
+                            "barA":       max(barA_r, -offset),
+                            "barB":       barB_r,
+                            "side":       grp.get("side", "long"),
+                            "ongoing":    ongoing,
+                            "b9Reached":  b9_reached,
+                            "slPrice":    sl_p if abs(sl_p) < 1e17 else None,
+                            "tp1Price":   tp1_p,
                         })
 
                 return {
@@ -657,12 +702,13 @@ def scan():
             "below":    sum(1 for r in results if not r["isAbove"]),
             "interval": iv,
         })
-
     except Exception as e:
         tb = traceback.format_exc()
         print("=== /api/scan ERROR ===")
         print(tb)
         return jsonify({"error": str(e), "traceback": tb}), 500
+    finally:
+        _scanning = False
 
 
 @app.route("/api/kline_detail")
@@ -672,7 +718,7 @@ def kline_detail():
     mp       = int(request.args.get("maPeriod", 20))
     mt       = request.args.get("maType", "SMA")
     try:
-        klines = get_klines(sym, iv, 300)
+        klines = get_klines(sym, iv, 600)
         if not klines:
             return jsonify({"error": "無法取得K線"}), 404
         closes = [k[4] for k in klines]
@@ -686,7 +732,7 @@ def kline_detail():
 
         # 合併多空、依 barA 排序，取最新 5 組（不過濾價格距離）
         all_fibs = sorted(fibs_long + fibs_short, key=lambda g: g["barA"])
-        fibs = all_fibs[-5:]   # 最新 5 組
+        fibs = all_fibs[-10:]   # 最新 5 組
 
         latest_side = fibs[-1]["side"] if fibs else "long"
 
@@ -733,7 +779,7 @@ def debug_fib():
     mt  = request.args.get("maType", "SMA")
 
     try:
-        klines = get_klines(sym, iv, 300)
+        klines = get_klines(sym, iv, 600)
         if not klines:
             return jsonify({"error": "無法取得K線"}), 404
 
@@ -855,6 +901,23 @@ def set_config():
     return jsonify({"ok": True})
 
 
+@app.route("/api/set_leverage", methods=["POST"])
+def set_leverage():
+    """自動設定倉位倍率"""
+    try:
+        d        = request.json or {}
+        symbol   = d.get("symbol", "")
+        leverage = int(d.get("leverage", 1))
+        side     = d.get("side", "LONG")   # LONG 或 SHORT
+        if not symbol or leverage < 1:
+            return jsonify({"error": "缺少參數"}), 400
+        r = bpost_auth("/openApi/swap/v2/trade/leverage",
+                       {"symbol": symbol, "side": side, "leverage": leverage})
+        return jsonify({"ok": True, "response": r})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/place_order", methods=["POST"])
 def place_order():
     """
@@ -897,13 +960,77 @@ def place_order():
         except Exception as me:
             results.append({"step": f"保證金模式({margin_api})", "response": {"warning": str(me)}})
 
+        # ── 設定倍率（必須成功，否則中止下單以免強平早於止損）────────────
+        leverage = d.get("leverage")
+        if not leverage or int(leverage) < 1:
+            return jsonify({"error": "未提供安全槓桿值，下單中止（請先讓系統計算止損對應倍率）"}), 400
+
+        lev_int = int(leverage)
+        lev_set_ok = False
+        avail_vol  = None   # BingX 該倍率下可開的最大數量
+        for ps in [position_side]:
+            try:
+                lr = bpost_auth("/openApi/swap/v2/trade/leverage",
+                                {"symbol": symbol, "side": ps, "leverage": lev_int})
+                results.append({"step": f"設定倍率({lev_int}x/{ps})", "response": lr})
+                data = lr.get("data", {}) if isinstance(lr.get("data"), dict) else {}
+                if lr.get("code", -1) == 0:
+                    lev_set_ok = True
+                    # BingX 實際套用的倍率（可能低於請求值）
+                    applied = data.get("leverage")
+                    if applied and int(applied) != lev_int:
+                        lev_int = int(applied)   # 以實際倍率為準
+                        results.append({"step": "倍率調整", "response": {
+                            "msg": f"BingX 實際套用 {lev_int}x（低於計算值，槓桿降低 → 強平更安全）"
+                        }})
+                else:
+                    # BingX 拒絕設定：取回傳的實際上限
+                    actual_lev = data.get("leverage")
+                    if actual_lev:
+                        # 槓桿越低強平價越遠，比計算值更安全，直接用
+                        lev_int = int(actual_lev)
+                        lev_set_ok = True
+                        results.append({"step": "倍率上限", "response": {
+                            "msg": f"BingX 上限 {lev_int}x，改用此倍率（強平更保守，繼續下單）"
+                        }})
+                    else:
+                        lev_set_ok = True   # 無法確認但繼續嘗試
+                # 取出該方向可開的最大數量（BingX 持倉限額）
+                vol_key = "availableLongVol" if ps == "LONG" else "availableShortVol"
+                try:
+                    avail_vol = float(data.get(vol_key, 0))
+                except Exception:
+                    avail_vol = None
+            except Exception as le:
+                return jsonify({
+                    "ok": False,
+                    "error": f"設定倍率失敗，下單中止：{str(le)}",
+                    "results": results
+                })
+
+        if not lev_set_ok:
+            return jsonify({"ok": False, "error": "倍率設定未確認成功，下單中止", "results": results})
+
+        # ── 若 qty 超過 BingX 持倉限額，自動縮減 ──────────────────────
+        if avail_vol and avail_vol > 0 and qty > avail_vol:
+            original_qty = qty
+            qty = avail_vol
+            sl_dist = abs((entry or 0) - sl) if sl else 0
+            actual_loss = round(qty * sl_dist, 4) if sl_dist > 0 else "?"
+            results.append({
+                "step": "數量縮減（持倉限額）",
+                "response": {
+                    "msg": f"原始數量 {original_qty:.4f} 超過 {lev_int}x 持倉上限 {avail_vol}，縮減至 {qty}，SL 擊中預估損失約 {actual_loss} U"
+                }
+            })
+
         # ── 計算各 TP 數量 ────────────────────────────────────────────
         tp1_pct = float(d.get("tp1_pct") or 0)
         tp2_pct = float(d.get("tp2_pct") or 0)
         tp1_qty = round(qty * tp1_pct / 100, 4) if tp1 and tp1_pct else 0
         tp2_qty = round(qty * tp2_pct / 100, 4) if tp2 and tp2_pct else 0
 
-        # ── 主單（只含 SL，TP 全部改為輪詢送出）─────────────────────
+        # ── 主單（含 SL）──────────────────────────────────────────────
         order_body = {
             "symbol":       symbol,
             "side":         order_side,
@@ -921,14 +1048,23 @@ def place_order():
         if res.get("code", -1) != 0:
             return jsonify({"ok": False, "results": results})
 
-        # ── 背景輪詢：主單成交後同時送出 TP1 + TP2 ───────────────────
+        # ── TP 單 ─────────────────────────────────────────────────────
+        # MARKET 單：主單成交幾乎即時，直接同步送 TP
+        # LIMIT 單：需輪詢等主單成交後再送
         tp_orders = []
         if tp1 and tp1_qty > 0:
-            tp_orders.append({"label": f"TP1@{tp1}", "body": {
+            # 用實際成交量（避免持倉上限縮減後數量不符）
+            order_data_main = res.get("data", {}).get("order", {})
+            filled_main = float(order_data_main.get("executedQty") or order_data_main.get("quantity") or qty)
+            if filled_main <= 0:
+                filled_main = qty
+            tp1_actual_qty = round(filled_main * tp1_pct / 100, 4) if tp1_pct < 100 else filled_main
+            tp1_body = {
                 "symbol": symbol, "side": close_side, "positionSide": position_side,
                 "type": "TAKE_PROFIT_MARKET", "stopPrice": tp1,
-                "quantity": tp1_qty, "workingType": "MARK_PRICE",
-            }})
+                "quantity": tp1_actual_qty, "workingType": "MARK_PRICE",
+            }
+            tp_orders.append({"label": f"TP1@{tp1}", "body": tp1_body})
         if tp2 and tp2_qty > 0:
             tp_orders.append({"label": f"TP2@{tp2}", "body": {
                 "symbol": symbol, "side": close_side, "positionSide": position_side,
@@ -937,55 +1073,66 @@ def place_order():
             }})
 
         if tp_orders:
-            order_id   = str(res["data"]["order"].get("orderID") or res["data"]["order"].get("orderId",""))
-            watcher_id = f"{symbol}_{order_id}"
-            tp2_watchers[watcher_id] = {
-                "symbol": symbol, "orderId": order_id,
-                "tp1": tp1, "tp2": tp2, "qty": qty,
-                "status": "watching", "msg": ""
-            }
+            if order_type == "MARKET":
+                # 市價單：倉位已開，直接同步送 TP
+                for tp in tp_orders:
+                    r2 = bpost_auth("/openApi/swap/v2/trade/order", tp["body"])
+                    ok2 = r2.get("code", -1) == 0
+                    results.append({
+                        "step": tp["label"],
+                        "response": r2,
+                        "ok": ok2
+                    })
+            else:
+                # 限價單：背景輪詢主單成交後送 TP
+                order_id   = str(res["data"]["order"].get("orderID") or res["data"]["order"].get("orderId",""))
+                watcher_id = f"{symbol}_{order_id}"
+                tp2_watchers[watcher_id] = {
+                    "symbol": symbol, "orderId": order_id,
+                    "tp1": tp1, "tp2": tp2, "qty": qty,
+                    "status": "watching", "msg": ""
+                }
 
-            def poll_and_send_tps(oid, tp_list, sym, wid):
-                intervals = [5]*120 + [30]*2760
-                for interval in intervals:
-                    if tp2_watchers.get(wid, {}).get("status") == "cancelled":
-                        print(f"[TP] {sym} 已取消監控")
-                        return
-                    time.sleep(interval)
-                    try:
-                        q = bget_auth("/openApi/swap/v2/trade/order",
-                                      {"symbol": sym, "orderId": oid})
-                        status = q.get("data", {}).get("order", {}).get("status", "")
-                        if status == "FILLED":
-                            # 平行同時送出所有 TP 單
-                            def send_tp(tp):
-                                r2 = bpost_auth("/openApi/swap/v2/trade/order", tp["body"])
-                                ok = r2.get("code", -1) == 0
-                                print(f"[TP] {sym} {tp['label']} {'已送出' if ok else '失敗:'+r2.get('msg','')}")
-                                return f"{tp['label']} {'✓' if ok else '✗'+r2.get('msg','')}"
-                            with ThreadPoolExecutor(max_workers=len(tp_list)) as tex:
-                                sent = list(tex.map(send_tp, tp_list))
-                            all_ok = all("✓" in s for s in sent)
-                            tp2_watchers[wid]["status"] = "sent_ok" if all_ok else "sent_fail"
-                            tp2_watchers[wid]["msg"]    = " | ".join(sent)
+                def poll_and_send_tps(oid, tp_list, sym, wid):
+                    intervals = [5]*120 + [30]*2760
+                    for interval in intervals:
+                        if tp2_watchers.get(wid, {}).get("status") == "cancelled":
+                            print(f"[TP] {sym} 已取消監控")
                             return
-                        if status in ("CANCELLED", "FAILED", "EXPIRED"):
-                            tp2_watchers[wid]["status"] = "aborted"
-                            tp2_watchers[wid]["msg"]    = f"主單 {status}"
-                            return
-                    except Exception as ex:
-                        print(f"[TP] 輪詢錯誤：{ex}")
-                tp2_watchers[wid]["status"] = "timeout"
-                tp2_watchers[wid]["msg"]    = "監控超時（24h）"
+                        time.sleep(interval)
+                        try:
+                            q = bget_auth("/openApi/swap/v2/trade/order",
+                                          {"symbol": sym, "orderId": oid})
+                            status = q.get("data", {}).get("order", {}).get("status", "")
+                            if status == "FILLED":
+                                def send_tp(tp):
+                                    r2 = bpost_auth("/openApi/swap/v2/trade/order", tp["body"])
+                                    ok = r2.get("code", -1) == 0
+                                    print(f"[TP] {sym} {tp['label']} {'已送出' if ok else '失敗:'+r2.get('msg','')}")
+                                    return f"{tp['label']} {'✓' if ok else '✗'+r2.get('msg','')}"
+                                with ThreadPoolExecutor(max_workers=len(tp_list)) as tex:
+                                    sent = list(tex.map(send_tp, tp_list))
+                                all_ok = all("✓" in s for s in sent)
+                                tp2_watchers[wid]["status"] = "sent_ok" if all_ok else "sent_fail"
+                                tp2_watchers[wid]["msg"]    = " | ".join(sent)
+                                return
+                            if status in ("CANCELLED", "FAILED", "EXPIRED"):
+                                tp2_watchers[wid]["status"] = "aborted"
+                                tp2_watchers[wid]["msg"]    = f"主單 {status}"
+                                return
+                        except Exception as ex:
+                            print(f"[TP] 輪詢錯誤：{ex}")
+                    tp2_watchers[wid]["status"] = "timeout"
+                    tp2_watchers[wid]["msg"]    = "監控超時（24h）"
 
-            t = threading.Thread(target=poll_and_send_tps,
-                                 args=(order_id, tp_orders, symbol, watcher_id), daemon=True)
-            t.start()
-            tp_desc = " + ".join(f"{tp['label']}({tp['body']['quantity']}張)" for tp in tp_orders)
-            results.append({"step": "TP 背景監控", "response": {
-                "msg": f"主單成交後自動送 {tp_desc}",
-                "watcher_id": watcher_id
-            }})
+                t = threading.Thread(target=poll_and_send_tps,
+                                     args=(order_id, tp_orders, symbol, watcher_id), daemon=True)
+                t.start()
+                tp_desc = " + ".join(f"{tp['label']}({tp['body']['quantity']}張)" for tp in tp_orders)
+                results.append({"step": "TP 背景監控(限價)", "response": {
+                    "msg": f"主單成交後自動送 {tp_desc}",
+                    "watcher_id": watcher_id
+                }})
 
         return jsonify({"ok": True, "results": results})
 
@@ -994,6 +1141,353 @@ def place_order():
         print("=== /api/place_order ERROR ===")
         print(tb)
         return jsonify({"error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 背景自動開單
+# ══════════════════════════════════════════════════════════════════════════════
+from datetime import datetime
+
+BINGX_MMR_BG    = 0.02   # 保守 MMR（涵蓋小幣）
+BINGX_MAX_LEV_BG = 125
+
+_bg = {
+    "running":   False,
+    "thread":    None,
+    "status":    "stopped",   # stopped / scanning / waiting / stopping
+    "settings":  {
+        "interval":        "15m",
+        "ma_period":       55,
+        "ma_type":         "SMA",
+        "scan_count":      150,
+        "filter_mode":     "chgrank",   # chgrank | volrank
+        "trigger_minutes": 0,   # 0 = 依 K 線週期自動
+        "loss_u":          10.0,
+        "max_trades":      15,
+        "min_rr":          4.0,
+        "max_margin_usdt": 30.0,        # 每筆保證金上限（0=不限）
+    },
+    "log":       [],   # 最新在前
+    "last_run":  None,
+    "next_run":  None,
+    "run_count": 0,
+}
+BG_LOG_MAX = 200
+
+
+def _bg_open_positions():
+    """回傳目前有倉位的幣種 set（跳過重複開單用）"""
+    try:
+        r = bget_auth("/openApi/swap/v2/user/positions", {})
+        positions = r.get("data", []) or []
+        return {p["symbol"] for p in positions
+                if abs(float(p.get("positionAmt", p.get("positionVolume", 0)))) > 0}
+    except Exception as e:
+        print(f"[BG] 取持倉失敗: {e}")
+        return set()
+
+
+def _bg_scan_sym(sym, iv, mp, mt):
+    """掃描單一幣種：只看最後一組（barA最大），已停損或到TP1則略過整個幣種"""
+    try:
+        klines = get_klines(sym, iv, 100)
+        if len(klines) < mp + 20:
+            return None
+        closes = [k[4] for k in klines]
+        highs  = [k[2] for k in klines]
+        lows   = [k[3] for k in klines]
+        mas    = ma_series(closes, mp, mt)
+        n      = len(klines)
+        cur    = closes[-1]
+
+        fibs_long  = find_all_fibs(klines, mas, strict=False)
+        fibs_short = find_all_fibs_short(klines, mas, strict=False)
+        for g in fibs_long:  g["side"] = "long"
+        for g in fibs_short: g["side"] = "short"
+        all_fibs = sorted(fibs_long + fibs_short, key=lambda g: g["barA"])
+
+        if not all_fibs:
+            return None
+
+        # 只取最後一組
+        grp  = all_fibs[-1]
+        isSh = grp["side"] == "short"
+        b1, b2, b8 = grp["barA"], grp["barB"], grp["barA"] + 7
+        b9  = grp["barA"] + 8
+
+        if b9 >= n:
+            return None   # b9 未到
+
+        if isSh:
+            sl_p = max(
+                highs[b1] if 0 <= b1 < n else -1e18,
+                highs[b2] if 0 <= b2 < n else -1e18,
+                highs[b8] if 0 <= b8 < n else -1e18,
+            )
+        else:
+            sl_p = min(
+                lows[b1] if 0 <= b1 < n else 1e18,
+                lows[b2] if 0 <= b2 < n else 1e18,
+                lows[b8] if 0 <= b8 < n else 1e18,
+            )
+
+        tp1_p = next((p for rv, p, _ in grp["levels"] if abs(rv - 6.92) < 0.01), None)
+        if tp1_p is None or abs(sl_p) >= 1e17:
+            return None
+
+        # 已停損或已到TP1 → 略過整個幣種
+        hit_sl = hit_tp1 = False
+        for i in range(b9, n):
+            if not isSh:
+                if highs[i] >= tp1_p: hit_tp1 = True; break
+                if lows[i]  <= sl_p:  hit_sl  = True; break
+            else:
+                if lows[i]  <= tp1_p: hit_tp1 = True; break
+                if highs[i] >= sl_p:  hit_sl  = True; break
+        if hit_sl or hit_tp1:
+            return None
+
+        # 方向確認
+        if not isSh and cur <= sl_p: return None
+        if     isSh and cur >= sl_p: return None
+
+        risk = abs(cur - sl_p)
+        if risk <= 0:
+            return None
+
+        # RR 用 Fib 1.0（b9 理論入場）計算，與 modal 一致
+        fib1_p = next((p for rv, p, _ in grp["levels"] if abs(rv - 1.0) < 1e-9), cur)
+        b9_risk = abs(fib1_p - sl_p)
+        rr_ref  = abs(tp1_p - fib1_p) / b9_risk if b9_risk > 0 else 0
+
+        return {"symbol": sym, "rr_ref": rr_ref, "info": {
+            "entry": cur, "sl": sl_p, "tp1": tp1_p,
+            "risk": risk, "rr": abs(tp1_p - cur) / risk, "isSh": isSh,
+        }}
+    except Exception:
+        return None
+
+
+def _bg_run_once():
+    """執行一輪掃描 + 開單，回傳 log dict"""
+    s       = _bg["settings"]
+    iv          = parse_iv(s["interval"])
+    mp          = int(s["ma_period"])
+    mt          = s["ma_type"]
+    count       = int(s["scan_count"])
+    loss_u      = float(s["loss_u"])
+    max_t       = int(s["max_trades"])
+    min_rr      = float(s["min_rr"])
+    fm          = s["filter_mode"]
+    max_margin  = float(s.get("max_margin_usdt", 0))
+
+    log = {
+        "time":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "scanned": 0, "found": 0, "traded": 0, "skipped": 0,
+        "trades":  [], "error": None,
+    }
+
+    try:
+        _bg["status"] = "scanning"
+        tickers = get_all_tickers()
+        if not tickers:
+            log["error"] = "無法取得行情"; return log
+
+        syms = sorted(tickers.keys(),
+                      key=lambda s: abs(tickers[s]["changePct"]) if fm == "chgrank"
+                                    else tickers[s]["quoteVol"],
+                      reverse=True)[:count]
+        log["scanned"] = len(syms)
+
+        # 平行掃描
+        with ThreadPoolExecutor(max_workers=12) as ex:
+            raw = list(ex.map(lambda s: _bg_scan_sym(s, iv, mp, mt), syms))
+        # min_rr 用 Fib 1.0（b9理論入場）過濾，與 modal 顯示一致
+        cands = [r for r in raw if r and (min_rr <= 0 or r.get("rr_ref", 0) >= min_rr)]
+        cands.sort(key=lambda c: c["info"]["rr"], reverse=True)
+        log["found"] = len(cands)
+
+        if not cands:
+            return log
+
+        open_pos = _bg_open_positions()
+        traded       = 0
+        used_margin  = 0.0
+
+        for cand in cands:
+            if max_t > 0 and traded >= max_t:
+                break
+            sym  = cand["symbol"]
+            info = cand["info"]
+
+            if sym in open_pos:
+                log["skipped"] += 1
+                continue
+
+            entry = info["entry"]
+            sl_p  = info["sl"]
+            tp1   = info["tp1"]
+            risk  = info["risk"]
+            isSh  = info["isSh"]
+            ps    = "SHORT" if isSh else "LONG"
+            oside = "SELL"  if isSh else "BUY"
+            cside = "BUY"   if isSh else "SELL"
+
+            sl_pct  = risk / entry
+            max_lev = min(int(1 / (sl_pct + BINGX_MMR_BG)), BINGX_MAX_LEV_BG)
+            if max_lev < 1:
+                continue
+            qty    = round(loss_u / risk, 4)
+            margin = round((qty * entry) / max_lev, 4)
+
+            # 每筆保證金上限檢查
+            if max_margin > 0 and margin > max_margin:
+                log["skipped"] += 1
+                continue
+
+            rec = {
+                "symbol": sym, "side": "short" if isSh else "long",
+                "entry": round(entry, 6), "sl": round(sl_p, 6),
+                "tp1": round(tp1, 6), "leverage": max_lev,
+                "qty": qty, "margin": margin, "rr": round(info["rr"], 2),
+                "ok": False, "msg": "",
+            }
+
+            try:
+                # 設逐倉模式
+                bpost_auth("/openApi/swap/v2/trade/marginType",
+                           {"symbol": sym, "marginType": "ISOLATED"})
+
+                # 設槓桿
+                lr = bpost_auth("/openApi/swap/v2/trade/leverage",
+                                {"symbol": sym, "side": ps, "leverage": max_lev})
+                ld = lr.get("data", {}) if isinstance(lr.get("data"), dict) else {}
+                applied = ld.get("leverage")
+                if applied:
+                    max_lev = int(applied)
+                    rec["leverage"] = max_lev
+                elif lr.get("code", -1) != 0:
+                    alt = ld.get("leverage")
+                    if alt:
+                        max_lev = int(alt); rec["leverage"] = max_lev
+
+                # 主單
+                ob = {
+                    "symbol": sym, "side": oside, "positionSide": ps,
+                    "type": "MARKET", "quantity": qty,
+                    "stopLoss": json.dumps({"type":"STOP_MARKET","stopPrice":sl_p,"workingType":"MARK_PRICE"}),
+                }
+                res = bpost_auth("/openApi/swap/v2/trade/order", ob)
+                if res.get("code", -1) == 0:
+                    rec["ok"]  = True
+                    rec["msg"] = "下單成功"
+                    traded += 1
+                    used_margin += margin
+                    open_pos.add(sym)
+                    # 用實際成交量送 TP（避免 BingX 持倉上限縮減後數量不符）
+                    order_data  = res.get("data", {}).get("order", {})
+                    filled_qty  = float(order_data.get("executedQty") or order_data.get("quantity") or qty)
+                    if filled_qty <= 0:
+                        filled_qty = qty
+                    r2 = bpost_auth("/openApi/swap/v2/trade/order", {
+                        "symbol": sym, "side": cside, "positionSide": ps,
+                        "type": "TAKE_PROFIT_MARKET", "stopPrice": tp1,
+                        "quantity": filled_qty, "workingType": "MARK_PRICE",
+                    })
+                    if r2.get("code", -1) != 0:
+                        rec["msg"] += f" (TP失敗:{r2.get('msg','')})"
+                else:
+                    rec["msg"] = res.get("msg", str(res))
+            except Exception as e:
+                rec["msg"] = str(e)
+
+            log["trades"].append(rec)
+
+        log["traded"] = sum(1 for t in log["trades"] if t["ok"])
+    except Exception as e:
+        log["error"] = str(e)
+        print(f"[BG] 執行錯誤: {traceback.format_exc()}")
+    finally:
+        _bg["status"] = "waiting" if _bg["running"] else "stopped"
+
+    return log
+
+
+def _iv_to_minutes(iv_str):
+    """K 線週期字串 → 分鐘數"""
+    iv = iv_str.strip().lower()
+    if iv.endswith('m'):  return int(iv[:-1])
+    if iv.endswith('h'):  return int(iv[:-1]) * 60
+    if iv.endswith('d'):  return int(iv[:-1]) * 1440
+    if iv.endswith('w'):  return int(iv[:-1]) * 10080
+    return 15  # fallback
+
+
+def _bg_loop():
+    while _bg["running"]:
+        run_log = _bg_run_once()
+        _bg["last_run"] = run_log["time"]
+        _bg["log"].insert(0, run_log)
+        _bg["log"] = _bg["log"][:BG_LOG_MAX]
+        _bg["run_count"] += 1
+
+        if not _bg["running"]:
+            break
+
+        # 觸發間隔：優先用自訂值，0 = 依 K 線週期
+        custom = int(_bg["settings"].get("trigger_minutes", 0))
+        secs = (custom * 60) if custom > 0 else (_iv_to_minutes(_bg["settings"]["interval"]) * 60)
+        wake = time.time() + secs
+        _bg["next_run"] = datetime.fromtimestamp(wake).strftime("%H:%M:%S")
+        slept = 0
+        while slept < secs and _bg["running"]:
+            time.sleep(1); slept += 1
+
+    _bg["status"]   = "stopped"
+    _bg["next_run"] = None
+
+
+@app.route("/api/bg_trade/start", methods=["POST"])
+def bg_trade_start():
+    d = request.json or {}
+    s = _bg["settings"]
+    for k in ("interval","ma_type","filter_mode"):
+        if k in d: s[k] = d[k]
+    for k in ("ma_period","scan_count","trigger_minutes","max_trades"):
+        if k in d: s[k] = int(d[k])
+    for k in ("loss_u","min_rr"):
+        if k in d: s[k] = float(d[k])
+
+    if _bg["running"]:
+        return jsonify({"ok": True, "msg": "設定已更新（持續運行中）"})
+
+    _bg["running"]   = True
+    _bg["run_count"] = 0
+    _bg["status"]    = "scanning"
+    t = threading.Thread(target=_bg_loop, daemon=True)
+    _bg["thread"] = t
+    t.start()
+    return jsonify({"ok": True, "msg": "背景自動開單已啟動"})
+
+
+@app.route("/api/bg_trade/stop", methods=["POST"])
+def bg_trade_stop():
+    _bg["running"] = False
+    _bg["status"]  = "stopping"
+    return jsonify({"ok": True, "msg": "停止中（本輪執行完後停止）"})
+
+
+@app.route("/api/bg_trade/status")
+def bg_trade_status():
+    return jsonify({
+        "running":   _bg["running"],
+        "status":    _bg["status"],
+        "settings":  _bg["settings"],
+        "last_run":  _bg["last_run"],
+        "next_run":  _bg["next_run"],
+        "run_count": _bg["run_count"],
+        "log":       _bg["log"][:30],
+    })
 
 
 @app.route("/api/backtest_fib", methods=["GET","POST"])
@@ -1046,7 +1540,7 @@ def backtest_fib():
             """
             sym = sym_info["symbol"]
             try:
-                klines = get_klines(sym, iv, 300)   # 與 kline_detail 一致
+                klines = get_klines(sym, iv, 600)   # 與 kline_detail 一致
                 if len(klines) < mp + 20:
                     return []
                 closes  = [k[4] for k in klines]
@@ -1061,7 +1555,7 @@ def backtest_fib():
                 fibs_short = find_all_fibs_short(klines, mas, strict=False)
                 for g in fibs_long:  g["side"] = "long"
                 for g in fibs_short: g["side"] = "short"
-                all_grps = sorted(fibs_long + fibs_short, key=lambda g: g["barA"])[-5:]
+                all_grps = sorted(fibs_long + fibs_short, key=lambda g: g["barA"])[-10:]
 
                 if not all_grps:
                     return []
@@ -1073,7 +1567,15 @@ def backtest_fib():
                     b8   = grp["barA"] + 7
                     b9   = grp["barA"] + 8
                     side = grp["side"]
+                    # 未到第9根：計入分母但所有 hit = False
                     if b9 >= n:
+                        recs.append({
+                            "symbol": sym, "side": side,
+                            "entry": None, "slPrice": None,
+                            "rr692": None, "rr1211": None, "rr1730": None,
+                            "hitTP1": False, "hitTP2": False, "hitTP3": False,
+                            "hitSL": False, "ongoing": True,
+                        })
                         continue
 
                     fib692  = next((p for r,p,_ in grp["levels"] if abs(r-6.92)  < 0.01), None)
@@ -1135,7 +1637,7 @@ def backtest_fib():
                         "hitTP2":     hit_tp2,
                         "hitTP3":     hit_tp3,
                         "hitSL":      hit_sl,
-                        "ongoing":    b9 >= n - 2,
+                        "ongoing":    not hit_tp1 and not hit_tp2 and not hit_tp3 and not hit_sl,
                     })
                 return recs
             except Exception as _e:
@@ -1151,9 +1653,24 @@ def backtest_fib():
         if not records:
             return jsonify({"error": "沒有找到符合的 Fib 組", "totalGroups": 0})
 
+        # 套用最低 R:R 過濾（與前端 minRR 一致）
+        # 未開單（entry=None）和執行中（ongoing）保留；有結果的組才過濾
+        min_rr = float(d.get("minRR", 0))
+        if min_rr > 0:
+            records = [
+                r for r in records
+                if r.get("entry") is None                                                          # 未開單（b9未到）：保留
+                or (r.get("entry") is not None and r.get("ongoing")
+                    and (r.get("rr692") is None or r["rr692"] >= min_rr))                         # 執行中：也過濾 R:R
+                or (not r.get("ongoing") and r.get("rr692") is not None and r["rr692"] >= min_rr) # 有結果：過濾 R:R
+            ]
+
         total      = len(records)
-        ongoing    = sum(1 for r in records if r.get("ongoing"))
-        valid      = total - ongoing
+        # 執行中 = 已進場且無任何結果；未開單 = b9 未到
+        cnt_exec   = sum(1 for r in records if r.get("entry") is not None and r.get("ongoing"))
+        cnt_unopen = sum(1 for r in records if r.get("entry") is None)
+        # 分母只算有明確結果的組（TP 或 SL），執行中/未開單不列入勝率
+        valid      = total - cnt_exec - cnt_unopen
         cnt_tp1    = sum(1 for r in records if r["hitTP1"])
         cnt_tp2    = sum(1 for r in records if r["hitTP2"])
         cnt_tp3    = sum(1 for r in records if r["hitTP3"])
@@ -1177,7 +1694,8 @@ def backtest_fib():
         return jsonify({
             "totalGroups":  total,
             "validGroups":  valid,
-            "ongoing":      ongoing,
+            "cntExec":      cnt_exec,
+            "cntUnopen":    cnt_unopen,
             "cntTP1":       cnt_tp1,
             "cntTP2":       cnt_tp2,
             "cntTP3":       cnt_tp3,
@@ -1209,7 +1727,8 @@ def cancel_tp2_watcher(wid):
         return jsonify({"ok": True})
     return jsonify({"error": "找不到此監控"}), 404
 
-_last_ping = time.time()
+_last_ping  = time.time()
+_scanning   = False   # 掃描進行中旗標（watchdog 保護）
 
 @app.route("/api/ping", methods=["POST"])
 def ping():
@@ -1217,14 +1736,8 @@ def ping():
     _last_ping = time.time()
     return jsonify({"ok": True})
 
-def _watchdog(timeout=90):
-    """本機模式：超過 timeout 秒沒收到 ping 就關閉 server"""
-    time.sleep(timeout + 5)   # 等前端先連上再開始監控
-    while True:
-        time.sleep(2)
-        if time.time() - _last_ping > timeout:
-            print("\n[watchdog] 瀏覽器已關閉，server 自動停止。")
-            os._exit(0)
+def _watchdog():
+    pass   # 已停用自動關閉，請手動 Ctrl+C 停止 server
 
 @app.route("/api/account_balance", methods=["GET"])
 def account_balance():

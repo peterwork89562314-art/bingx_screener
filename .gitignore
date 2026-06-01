@@ -1,7 +1,7 @@
 # API 金鑰（絕對不能上傳）
 config.json
 bingxKey.txt
-
+阿里雲環境變數.txt
 # Python
 __pycache__/
 *.pyc

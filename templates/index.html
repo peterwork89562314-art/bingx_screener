@@ -221,16 +221,18 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
   <div class="cg"><label>掃描數量</label><input type="number" id="limit" value="500" min="5" max="500"></div>
   <button class="bscan" id="scanBtn" onclick="startScan()">▶ 開始掃描</button>
   <button class="bstat" onclick="openStatModal()">📊 統計</button>
+  <button class="bstat" id="autoTradeBtn" onclick="openAutoTradeModal()" style="background:rgba(38,166,154,.15);border-color:rgba(38,166,154,.5);color:#26a69a;display:none">🤖 自動開單</button>
+  <button class="bstat" id="bgTradeBtn" onclick="openBgTradePanel()" style="background:rgba(79,127,255,.15);border-color:rgba(79,127,255,.5);color:#4f7fff">⚙ 背景開單</button>
 </div>
 
 <div class="fbar">
   <div class="cg">
     <label>篩選模式</label>
     <div class="fmode">
-      <button class="fmbtn on" data-f="volume"    onclick="setFilter('volume')">📊 成交量</button>
+      <button class="fmbtn"    data-f="volume"    onclick="setFilter('volume')">📊 成交量</button>
       <button class="fmbtn"    data-f="volspike"  onclick="setFilter('volspike')">🔥 異常波動</button>
       <button class="fmbtn"    data-f="volchange" onclick="setFilter('volchange')">📈 日量變化%</button>
-      <button class="fmbtn"    data-f="chgrank"   onclick="setFilter('chgrank')">🚀 漲跌幅排行</button>
+      <button class="fmbtn on" data-f="chgrank"   onclick="setFilter('chgrank')">🚀 漲跌幅排行</button>
       <button class="fmbtn"    data-f="random"    onclick="setFilter('random')">🎲 隨機</button>
     </div>
   </div>
@@ -246,6 +248,13 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
     <label>Fibonacci 過濾</label>
     <div class="fib-toggle on" id="fibToggle" onclick="toggleFib()">
       <span>📐</span><span id="fibTxt">開啟（底底高 + 頂頂低）</span>
+    </div>
+  </div>
+  <div class="cg">
+    <label>最低 R:R（6.92）</label>
+    <div style="display:flex;align-items:center;gap:5px">
+      <input type="number" id="minRR" value="4" step="0.1" min="0" style="width:68px" oninput="renderContent()">
+      <span style="font-size:11px;color:var(--t3)">R　<span style="color:var(--t3);font-size:10px">0=不限</span></span>
     </div>
   </div>
 </div>
@@ -325,9 +334,9 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
             <!-- 訂單類型 -->
             <div style="display:flex;gap:0;border:1px solid var(--b2);border-radius:var(--rads);overflow:hidden">
               <button id="opTypeLmt" onclick="setOrderType('LIMIT')"
-                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--ac);color:#fff">限價</button>
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--bg4);color:var(--t2)">限價</button>
               <button id="opTypeMkt" onclick="setOrderType('MARKET')"
-                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--bg4);color:var(--t2)">市價</button>
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--ac);color:#fff">市價</button>
             </div>
           </div>
         </div>
@@ -341,7 +350,7 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
           <div class="op-row">
             <div class="op-lbl">停損點位 <span id="opSlLbl" style="color:var(--r)"></span></div>
             <div class="op-input-wrap">
-              <input class="op-input" id="opSl" type="number" step="any" oninput="calcOrder()">
+              <input class="op-input" id="opSl" type="number" step="any" oninput="calcLossQty();calcOrder()">
             </div>
           </div>
           <div class="op-row">
@@ -363,15 +372,33 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
         </div>
         <div class="op-result" id="opResult"></div>
 
-        <!-- 下單區 -->
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <div style="display:flex;flex-direction:column;gap:3px">
-            <label style="font-size:10px;color:var(--t3);text-transform:uppercase">數量（張）</label>
-            <input class="op-input" id="opQty" type="number" step="any" min="0" placeholder="0.1" style="width:90px">
+        <!-- 損失 U 推算 -->
+        <div style="background:var(--bg4);border:1px solid var(--b2);border-radius:var(--rads);padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:11px;color:var(--t3);white-space:nowrap">止損上限</label>
+            <input class="op-input" id="opLossU" type="number" step="any" min="0" value="10"
+              style="width:70px" oninput="calcLossQty()">
+            <span style="font-size:11px;color:var(--t3)">U</span>
+            <span style="font-size:11px;color:var(--t3);margin-left:4px">→ 最大安全槓桿</span>
+            <b id="opLevDisplay" style="font-size:13px;color:#a78bfa">—</b>
+            <span style="font-size:11px;color:var(--t3)">x</span>
+            <input id="opLevInput" type="hidden" value="1">
+            <button onclick="autoSetLev()" style="font-size:11px;padding:3px 8px;background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.4);border-radius:var(--rads);color:#a78bfa;cursor:pointer">⚡ 套用倍率</button>
           </div>
-          <button class="op-btn" id="opSubmitBtn" onclick="submitOrder()" style="margin-top:14px">📤 送出下單</button>
-          <button class="op-btn" onclick="checkBalance()" style="margin-top:14px;background:var(--bg4);color:var(--t2);border:1px solid var(--b2)">💰 查餘額</button>
-          <span id="opBalanceInfo" style="font-size:12px;color:var(--gold)"></span>
+          <div id="opLevSuggest" style="display:none;background:rgba(167,139,250,.07);border-radius:6px;padding:8px 10px;font-size:12px;line-height:2">
+            <div>倉位大小 <b id="opPosVal" style="color:#a78bfa"></b> U
+              ｜ 投入保證金 <b id="opMarginVal" style="color:#f59e0b"></b> U
+              ｜ 合約數量 <b id="opQtyCalc" style="color:var(--t)"></b> 張</div>
+            <div style="color:var(--t3);font-size:11px">SL 擊中損失：<b id="opLossCheck" style="color:#ef5350"></b> U
+              ｜ 止損% <b id="opSlPctShow" style="color:var(--t3)"></b></div>
+            <div id="opLossResult" style="font-size:11px;margin-top:2px"></div>
+          </div>
+          <input id="opQty" type="hidden">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+            <button class="op-btn" id="opSubmitBtn" onclick="submitOrder()">📤 送出下單</button>
+            <button class="op-btn" onclick="checkBalance()" style="background:var(--bg4);color:var(--t2);border:1px solid var(--b2)">💰 查餘額</button>
+            <span id="opBalanceInfo" style="font-size:12px;color:var(--gold)"></span>
+          </div>
         </div>
 
         <!-- API 金鑰設定 -->
@@ -429,7 +456,7 @@ const FIB_DEF = [
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allResults=[], visList=[];
-let curTab='all', curSort='rr', curFilter='volume', useFib=true;
+let curTab='all', curSort='rr', curFilter='chgrank', useFib=true;
 let modIdx=-1, modOpen=false;
 let modOrigIv='', modCurIv='';   // 彈窗當前顯示的時間級別
 let modActiveGrpIdx = -1;        // 當前選中的 Fib 組索引（-1=未選）
@@ -516,52 +543,60 @@ function fundingTag(f){
 // 計算某個 allResults 項目的最新 Fib 組 R:R（到 6.92）
 function calcLatestRR(r){
   if(!r.fibs||!r.fibs.length) return null;
-  const grp = r.fibs[r.fibs.length-1];
-  const dn  = r.closes ? r.closes.length : 0;
-  const b1=grp.barA, b2=grp.barB, b8=(grp.bar8!=null?grp.bar8:grp.barA+7), b9=grp.barA+8;
-  if(b9>=dn) return null;
-  const entry = r.opens[b9];
-  if(!entry) return null;
-  const isSh = grp.side==='short';
-  let slP;
-  if(!isSh){
-    slP=Math.min(
-      b1>=0&&b1<dn?r.lows[b1]:Infinity,
-      b2>=0&&b2<dn?r.lows[b2]:Infinity,
-      b8>=0&&b8<dn?r.lows[b8]:Infinity
-    );
-  } else {
-    slP=Math.max(
-      b1>=0&&b1<dn?r.highs[b1]:-Infinity,
-      b2>=0&&b2<dn?r.highs[b2]:-Infinity,
-      b8>=0&&b8<dn?r.highs[b8]:-Infinity
-    );
-  }
-  const risk=Math.abs(entry-slP);
-  if(risk<=0) return null;
+  const dn = r.closes ? r.closes.length : 0;
+  let bestRR = null;
 
-  // 已停損的不參與排序
-  const tp1lv=grp.levels.find(([rv])=>Math.abs(rv-6.92)<0.01);
-  const tp1p=tp1lv?tp1lv[1]:null;
-  let hitSL=false, hitTP1=false;
-  for(let i=b9;i<dn;i++){
-    if(hitSL) break;
+  // 遍歷所有 Fib 組，取最佳（未停損）R:R
+  for(const grp of r.fibs){
+    const b1=grp.barA, b2=grp.barB, b8=(grp.bar8!=null?grp.bar8:grp.barA+7), b9=grp.barA+8;
+    if(b9>=dn) continue;
+    const entry = r.opens[b9];
+    if(!entry) continue;
+    const isSh = grp.side==='short';
+    let slP;
     if(!isSh){
-      if(!hitTP1){
-        if(tp1p&&r.highs[i]>=tp1p) hitTP1=true;
-        else if(r.lows[i]<=slP)    hitSL=true;
-      }
+      slP=Math.min(
+        b1>=0&&b1<dn?r.lows[b1]:Infinity,
+        b2>=0&&b2<dn?r.lows[b2]:Infinity,
+        b8>=0&&b8<dn?r.lows[b8]:Infinity
+      );
     } else {
-      if(!hitTP1){
-        if(tp1p&&r.lows[i]<=tp1p)  hitTP1=true;
-        else if(r.highs[i]>=slP)   hitSL=true;
+      slP=Math.max(
+        b1>=0&&b1<dn?r.highs[b1]:-Infinity,
+        b2>=0&&b2<dn?r.highs[b2]:-Infinity,
+        b8>=0&&b8<dn?r.highs[b8]:-Infinity
+      );
+    }
+    const risk=Math.abs(entry-slP);
+    if(risk<=0) continue;
+
+    const tp1lv=grp.levels.find(([rv])=>Math.abs(rv-6.92)<0.01);
+    const tp1p=tp1lv?tp1lv[1]:null;
+    if(!tp1lv) continue;
+
+    // 已停損的跳過
+    let hitSL=false, hitTP1=false;
+    for(let i=b9;i<dn;i++){
+      if(hitSL) break;
+      if(!isSh){
+        if(!hitTP1){
+          if(tp1p&&r.highs[i]>=tp1p) hitTP1=true;
+          else if(r.lows[i]<=slP)    hitSL=true;
+        }
+      } else {
+        if(!hitTP1){
+          if(tp1p&&r.lows[i]<=tp1p)  hitTP1=true;
+          else if(r.highs[i]>=slP)   hitSL=true;
+        }
       }
     }
-  }
-  if(hitSL) return null;
+    if(hitSL) continue;
 
-  if(!tp1lv) return null;
-  return Math.abs(tp1lv[1]-entry)/risk;
+    const rr = Math.abs(tp1lv[1]-entry)/risk;
+    if(bestRR===null || rr>bestRR) bestRR=rr;
+  }
+
+  return bestRR;
 }
 
 function sortArr(a){
@@ -653,6 +688,9 @@ function renderContent(){
   let data=[...allResults];
   if(curTab==='above')data=data.filter(r=>r.isAbove);
   if(curTab==='below')data=data.filter(r=>!r.isAbove);
+  // 最低 R:R 過濾
+  const minRR = parseFloat(document.getElementById('minRR')?.value)||0;
+  if(minRR>0) data=data.filter(r=>r._rr!=null && r._rr>=minRR);
   data=sortArr(data);
   visList=data;
   if(!data.length){
@@ -675,6 +713,7 @@ function renderContent(){
   }
   mc.innerHTML=html;
   setTimeout(()=>data.forEach(r=>drawMini(r)),30);
+  updateAutoTradeBtn();
 }
 function nd(){return '<span style="color:var(--t3);font-size:13px">無</span>';}
 
@@ -954,6 +993,8 @@ function openMod(idx){
   modCurIv  = modOrigIv;
   buildIvTabs(modOrigIv);
   document.getElementById('movl').classList.add('open');
+  // 預設市價
+  setOrderType('MARKET');
   loadModal();
 }
 function closeMod(e){
@@ -1002,6 +1043,35 @@ async function loadModal(){
     const data=await resp.json();
     if(data.error)throw new Error(data.error);
 
+    // 依最低 R:R 過濾 Fib 組
+    const minRRVal = parseFloat(document.getElementById('minRR')?.value)||0;
+    if(minRRVal > 0 && data.fibs && data.fibs.length){
+      const dn2 = data.closes.length;
+      data.fibs = data.fibs.filter(grp=>{
+        const b1=grp.barA, b2=grp.barB, b8=(grp.bar8!=null?grp.bar8:grp.barA+7), b9=grp.barA+8;
+        if(b9>=dn2) return true;  // 未開單：保留，計入分母
+        const entry=data.opens[b9]; if(!entry) return true;
+        const isSh=grp.side==='short';
+        let slP;
+        if(!isSh){ slP=Math.min(b1>=0&&b1<dn2?data.lows[b1]:Infinity,b2>=0&&b2<dn2?data.lows[b2]:Infinity,b8>=0&&b8<dn2?data.lows[b8]:Infinity); }
+        else      { slP=Math.max(b1>=0&&b1<dn2?data.highs[b1]:-Infinity,b2>=0&&b2<dn2?data.highs[b2]:-Infinity,b8>=0&&b8<dn2?data.highs[b8]:-Infinity); }
+        const risk=Math.abs(entry-slP); if(risk<=0) return false;
+        const tp1lv=grp.levels.find(([rv])=>Math.abs(rv-6.92)<0.01); if(!tp1lv) return true;
+        const tp1p=tp1lv[1];
+        // 掃描結果
+        let hitSL=false,hitTP1=false;
+        for(let i=b9;i<dn2;i++){
+          if(hitSL) break;
+          if(!isSh){ if(!hitTP1){ if(data.highs[i]>=tp1p) hitTP1=true; else if(data.lows[i]<=slP) hitSL=true; } }
+          else      { if(!hitTP1){ if(data.lows[i]<=tp1p)  hitTP1=true; else if(data.highs[i]>=slP) hitSL=true; } }
+        }
+        // 開單中（無任何結果）→ 保留，計入統計
+        if(!hitSL && !hitTP1) return true;
+        // 已有結果 → 依 R:R 過濾（停損也要過濾：低 R:R 的停損不值得顯示）
+        return Math.abs(tp1p-entry)/risk >= minRRVal;
+      });
+    }
+
     // 存原始數據，初始視窗：聚焦最新 Fib 組，顯示約 80 根（最小檢視）
     modalData = data;
     const totalBars = data.times.length;
@@ -1047,7 +1117,7 @@ async function loadModal(){
       {
         const dn = data.closes.length;
         const symMap = ['①','②','③','④','⑤'];
-        let cntSL=0, cntTP1=0, cntTP2=0, cntTP3=0, cntOngoing=0;
+        let cntSL=0, cntTP1=0, cntTP2=0, cntTP3=0, cntOngoing=0, cntExec=0;
         let sumRR692=0, sumRR1211=0, sumRR1730=0, cntRR=0;
         let tableRows = '';
         data.fibs.forEach((grp, gi)=>{
@@ -1111,8 +1181,8 @@ async function loadModal(){
           if(hitTP1) cntTP1++;
           if(hitTP2) cntTP2++;
           if(hitTP3) cntTP3++;
-          const isOng = !hitSL&&!hitTP1&&!hitTP2&&b9>=dn-2;
-          if(isOng) cntOngoing++;
+          const isOng = !hitSL&&!hitTP1&&!hitTP2&&!hitTP3;
+          if(isOng){ cntOngoing++; cntExec++; }
           if(rr692  != null) { sumRR692  += rr692;  cntRR++; }
           if(rr1211 != null)   sumRR1211 += rr1211;
           if(rr1730 != null)   sumRR1730 += rr1730;
@@ -1136,21 +1206,28 @@ async function loadModal(){
             <td style="text-align:center">${mk(hitSL,'#ef5350','停損')}</td>
           </tr>`;
         });
-        const validN = data.fibs.length - cntOngoing;
-        const kpiCard = (val, tot, lbl, col, bg) =>
-          `<div style="flex:1;background:${bg};border-radius:7px;padding:8px 6px;text-align:center;min-width:56px">
-            <div style="font-size:18px;font-weight:800;color:${col};line-height:1">${val}<span style="font-size:11px;color:${col};opacity:.6">/${tot}</span></div>
-            <div style="font-size:10px;color:${col};opacity:.75;margin-top:2px">${lbl}</div>
+        // 分母 = 全部已開單（到達6.92 + 停損 + 執行中），未開單（b9未到）不算
+        const validN   = cntTP1 + cntSL + cntExec;
+        const cntUnopn = data.fibs.length - validN; // b9 未到
+        const kpiCard = (val, tot, lbl, col, bg) => {
+          const pctStr = tot > 0 ? (val/tot*100).toFixed(1)+'%' : '—';
+          return `<div style="flex:1;background:${bg};border-radius:7px;padding:8px 6px;text-align:center;min-width:56px">
+            <div style="font-size:18px;font-weight:800;color:${col};line-height:1">${val}</div>
+            <div style="font-size:10px;color:${col};opacity:.7;margin:2px 0 1px">${pctStr}</div>
+            <div style="font-size:10px;color:${col};opacity:.75">${lbl}</div>
+            <div style="font-size:10px;color:var(--t3);margin-top:2px">${val} / ${tot>0?tot:'—'}</div>
           </div>`;
+        };
         entryStatsHTML=`
           <div style="padding:7px 0 3px;font-size:10px;color:var(--t3);letter-spacing:.06em;text-transform:uppercase;border-top:1px solid var(--b);margin-top:6px">
-            第9根進場統計（共 ${validN} 組）
+            第9根進場統計（已開單 ${validN} 組${cntUnopn>0?`，未開單 ${cntUnopn}`:''}）
           </div>
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">
-            ${kpiCard(cntTP1, validN, '到達 6.92',  '#f59e0b', 'rgba(245,158,11,.1)')}
-            ${kpiCard(cntTP2, validN, '到達 12.11', '#26a69a', 'rgba(38,166,154,.1)')}
-            ${kpiCard(cntTP3, validN, '到達 17.3',  '#6ee7b7', 'rgba(110,231,183,.1)')}
-            ${kpiCard(cntSL,  validN, '停損',        '#ef5350', 'rgba(239,83,80,.1)')}
+            ${kpiCard(cntTP1,  validN, '到達 6.92',  '#f59e0b', 'rgba(245,158,11,.1)')}
+            ${kpiCard(cntTP2,  validN, '到達 12.11', '#26a69a', 'rgba(38,166,154,.1)')}
+            ${kpiCard(cntTP3,  validN, '到達 17.3',  '#6ee7b7', 'rgba(110,231,183,.1)')}
+            ${kpiCard(cntSL,   validN, '停損',        '#ef5350', 'rgba(239,83,80,.1)')}
+            ${kpiCard(cntExec, validN, '執行中',      '#8b90a0', 'rgba(139,144,160,.1)')}
           </div>
           ${cntRR>0?`<div style="display:flex;gap:12px;padding:5px 8px;background:rgba(167,139,250,.08);border-radius:6px;margin-bottom:8px;font-size:12px">
             <span style="color:var(--t3)">平均 R:R</span>
@@ -1216,8 +1293,87 @@ async function loadModal(){
   }
 }
 
+// ── 損失 U 推算最大安全槓桿與倉位 ────────────────────────────────────────────────
+// 維持保證金率：BingX 主流幣 0.5%，但小幣可達 1~2%
+// 統一用 2% 保守估計，確保各幣種強平價都低於止損
+const BINGX_MMR = 0.02;
+const BINGX_MAX_LEV = 125;
+
+function calcLossQty(){
+  // 市價單：實際成交價 = 當前價，不能用 fib1（b9 open）作 entry
+  // 否則當 b9 open 接近 SL 時，dist 極小 → qty 爆炸
+  let entry;
+  if(opOrderType === 'MARKET'){
+    // 強制使用最新收盤價（最接近實際成交價）
+    if(modalData && modalData.closes && modalData.closes.length > 0)
+      entry = modalData.closes[modalData.closes.length - 1];
+    else {
+      const r = visList && visList[modIdx];
+      if(r && r.closes && r.closes.length > 0)
+        entry = r.closes[r.closes.length - 1];
+    }
+  } else {
+    // 限價單：用使用者填入的開倉點位
+    entry = parseFloat(document.getElementById('opEntry').value);
+  }
+  const sl     = parseFloat(document.getElementById('opSl').value);
+  const lossU  = parseFloat(document.getElementById('opLossU').value);
+  const resEl  = document.getElementById('opLossResult');
+  const sugEl  = document.getElementById('opLevSuggest');
+  resEl.textContent = '';
+  if(!entry || !sl || !lossU || isNaN(entry) || isNaN(sl) || isNaN(lossU)){
+    sugEl.style.display='none';
+    document.getElementById('opLevDisplay').textContent = '—';
+    return;
+  }
+  const dist = Math.abs(entry - sl);
+  if(dist <= 0){ sugEl.style.display='none'; resEl.textContent='停損點位無效'; return; }
+
+  // 槓桿：用實際 SL 距離反推最大安全倍數
+  // 公式：liqPrice = entry × (1 ∓ 1/lev) / (1 ∓ MMR)
+  // 確保 liqPrice 剛好低於（多）/ 高於（空）SL → lev ≤ 1/(slPct + MMR)
+  const slPct  = dist / entry;
+  const maxLev = Math.min(Math.floor(1 / (slPct + BINGX_MMR)), BINGX_MAX_LEV);
+  // 合約數：止損觸發時損失恰為 lossU
+  const qty     = lossU / dist;
+  const posVal  = qty * entry;
+  const margin  = posVal / maxLev;
+  const lossChk = qty * dist;   // = lossU
+
+  // 同步隱藏欄位供 submitOrder 使用
+  document.getElementById('opLevInput').value = maxLev;
+  document.getElementById('opLevDisplay').textContent = maxLev + 'x';
+  sugEl.style.display = 'block';
+  document.getElementById('opPosVal').textContent    = posVal.toFixed(2);
+  document.getElementById('opMarginVal').textContent = margin.toFixed(2);
+  document.getElementById('opQtyCalc').textContent   = qty.toFixed(4);
+  document.getElementById('opLossCheck').textContent = lossChk.toFixed(2);
+  document.getElementById('opSlPctShow').textContent = (slPct*100).toFixed(2) + '%';
+  document.getElementById('opQty').value             = qty.toFixed(4);
+}
+
+// ── 自動套用倍率至 BingX ───────────────────────────────────────────────────────
+function autoSetLev(){
+  const levVal = parseInt(document.getElementById('opLevInput').value);
+  const resEl  = document.getElementById('opLossResult');
+  if(!levVal || levVal < 1){ resEl.textContent='請先填入止損上限以計算倍率'; return; }
+  const r = visList && visList[modIdx];
+  if(!r || !r.symbol){ resEl.textContent='找不到幣種資訊'; return; }
+  const positionSide = (opSide==='short') ? 'SHORT' : 'LONG';
+  resEl.textContent = '⏳ 設定倍率中...';
+  fetch('/api/set_leverage',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({symbol:r.symbol, leverage:levVal, side:positionSide})
+  }).then(res=>res.json()).then(d=>{
+    if(d.ok) resEl.textContent = '✅ 倍率已設為 '+levVal+'x';
+    else     resEl.textContent = '⚠ 設倍率: '+(d.error||JSON.stringify(d));
+  }).catch(e=>{ resEl.textContent='⚠ '+e.message; });
+}
+
 // ── 開單計算 ──────────────────────────────────────────────────────────────────
 function calcOrder(){
+  calcLossQty();   // 同步更新損失推算
   const entry = parseFloat(document.getElementById('opEntry').value);
   const sl    = parseFloat(document.getElementById('opSl').value);
   const tp1   = parseFloat(document.getElementById('opTp1').value);
@@ -1307,6 +1463,26 @@ function applyFibGroup(grp, data){
     </table>
     </div>`;
 
+  // ── 止損：B1/B2/B8 影線極值（與回測一致）──────────────────────────
+  const b1 = grp.barA, b2 = grp.barB, b8 = grp.bar8 != null ? grp.bar8 : grp.barA + 7;
+  let slByBar;
+  if(isSh){
+    slByBar = Math.max(
+      data.highs[b1] ?? -Infinity,
+      data.highs[b2] ?? -Infinity,
+      data.highs[b8] ?? -Infinity
+    );
+    if(!isFinite(slByBar)) slByBar = fib0p;   // fallback
+  } else {
+    slByBar = Math.min(
+      data.lows[b1] ??  Infinity,
+      data.lows[b2] ??  Infinity,
+      data.lows[b8] ??  Infinity
+    );
+    if(!isFinite(slByBar)) slByBar = fib0p;   // fallback
+  }
+  const slForPanel = p6(slByBar);
+
   // ── 開單面板 ──
   opSide = isSh ? 'short' : 'long';
   const isShortPanel = isSh;
@@ -1316,11 +1492,11 @@ function applyFibGroup(grp, data){
   document.querySelector('.op-title span') && (document.querySelector('.op-title span').textContent = isShortPanel ? '📋 空單規劃' : '📋 多單規劃');
 
   document.getElementById('opEntry').value   = p6(fib1p)||'';
-  document.getElementById('opSl').value      = p6(fib0p)||'';
+  document.getElementById('opSl').value      = slForPanel||'';
   document.getElementById('opTp1').value     = p6(fib692)||'';
   document.getElementById('opTp2').value     = p6(fib1211)||'';
   document.getElementById('opEntryLbl').textContent = isShortPanel ? 'Fib 1（下緣）' : 'Fib 1';
-  document.getElementById('opSlLbl').textContent    = isShortPanel ? 'Fib 0（上緣）' : 'Fib 0';
+  document.getElementById('opSlLbl').textContent    = isShortPanel ? 'B1/B2/B8 最高' : 'B1/B2/B8 最低';
   document.getElementById('opTp1Lbl').textContent   = 'Fib 6.92';
   document.getElementById('opTp2Lbl').textContent   = 'Fib 12.11';
   document.getElementById('orderPanel').style.display='flex';
@@ -1441,7 +1617,7 @@ async function checkBalance(){
   }catch(e){el.textContent='✗ '+e.message;}
 }
 
-let opOrderType  = 'LIMIT';
+let opOrderType  = 'MARKET';
 let opSide       = 'long';      // 'long' | 'short'
 let opMarginMode = 'isolated';  // 'isolated' | 'cross'
 
@@ -1477,7 +1653,7 @@ async function submitOrder(){
   const missing=[];
   if(!isMkt && (!entry||isNaN(entry))) missing.push('開倉點位');
   if(!sl||isNaN(sl))       missing.push('停損點位');
-  if(qty<=0||isNaN(qty))   missing.push('數量（張）');
+  if(qty<=0||isNaN(qty))   missing.push('止損上限 U（需先填入以計算數量）');
   if(missing.length){alert('請填入：'+missing.join('、'));return;}
 
   const resEl = document.getElementById('opOrderResult');
@@ -1495,7 +1671,8 @@ async function submitOrder(){
         entry:isMkt?null:entry, sl,
         tp1:tp1||null, tp1_pct:tp1p,
         tp2:tp2||null, tp2_pct:tp2p,
-        quantity:qty
+        quantity:qty,
+        leverage: parseInt(document.getElementById('opLevInput').value)||null
       })
     });
     const d=await res.json();
@@ -1772,6 +1949,37 @@ function switchStatTab(t){
   if(t==='list' && statData) renderStatList(statData.detail);
 }
 
+function renderStatDetail(detail){
+  const el = document.getElementById('statDetailBox');
+  if(!el || !detail || !detail.length) return;
+  const stTag = function(g){
+    if(g.entry===null||g.entry===undefined)
+      return '<span style="color:#8b90a0;font-size:10px">未開單</span>';
+    if(g.hitTP3) return '<span style="color:#6ee7b7;font-size:10px;font-weight:700">17.3✓</span>';
+    if(g.hitTP2) return '<span style="color:#26a69a;font-size:10px;font-weight:700">12.11✓</span>';
+    if(g.hitTP1) return '<span style="color:#f59e0b;font-size:10px;font-weight:700">6.92✓</span>';
+    if(g.hitSL)  return '<span style="color:#ef5350;font-size:10px;font-weight:700">停損</span>';
+    return '<span style="color:#8b90a0;font-size:10px">進行中</span>';
+  };
+  const rows = detail.map(function(item){
+    const sym = item.symbol.replace(/-?USDT\.?P?$/,'');
+    const grps = item.groups||[];
+    const chips = grps.map(function(g,gi){
+      const isSh = g.side==='short';
+      const sideCol = isSh?'#ef5350':'#f59e0b';
+      const rrTxt = g.rr692!=null ? g.rr692+'R ' : '';
+      return '<span style="color:'+sideCol+';font-size:11px;font-weight:600">'+(isSh?'空':'多')+'</span>'
+        +'<span style="color:var(--t3);font-size:10px"> '+rrTxt+'</span>'
+        +stTag(g);
+    }).join('<span style="color:var(--b);margin:0 6px">│</span>');
+    return '<div style="display:flex;align-items:center;padding:4px 8px;border-radius:5px;gap:6px">'
+      +'<span style="font-size:11px;font-weight:600;color:var(--t2);min-width:76px;flex-shrink:0">'+sym+'</span>'
+      +'<span style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;font-size:11px">'+chips+'</span>'
+      +'</div>';
+  }).join('');
+  el.innerHTML = '<div style="border:1px solid var(--b);border-radius:7px;overflow:hidden;max-height:220px;overflow-y:auto">'+rows+'</div>';
+}
+
 function renderStatList(detail){
   const el = document.getElementById('statList');
   if(!detail||!detail.length){ el.innerHTML='<div style="color:var(--t3)">無資料</div>'; return; }
@@ -1818,46 +2026,379 @@ async function runBacktest(){
     const resp = await fetch('/api/backtest_fib', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({interval:iv, maPeriod:parseInt(mp), maType:mt, lookForward:100, symbolsData})
+      body: JSON.stringify({interval:iv, maPeriod:parseInt(mp), maType:mt, lookForward:100, symbolsData,
+        minRR: parseFloat(document.getElementById('minRR')?.value)||0})
     });
     const d = await resp.json();
     if(d.error){ box.innerHTML=`<div style="color:var(--r)">${d.error}</div>`; return; }
     statData = d;
 
-    const vN = d.validGroups || 1;
+    // 分母 = 全部已開單 = 有結果 + 執行中（不含未開單）
+    const vN = (d.validGroups||0) + (d.cntExec||0);
     const pct = n => vN > 0 ? (n/vN*100).toFixed(1)+'%' : '—';
-    const kpi = (val, tot, lbl, col, bg, sub) =>
-      `<div style="flex:1;background:${bg};border-radius:9px;padding:12px 8px;text-align:center;min-width:64px">
+    const kpi = (val, tot, lbl, col, bg, execN, slN) => {
+      const subHtml = (execN != null && slN != null && vN > 0)
+        ? `<div style="margin-top:7px;border-top:1px solid rgba(255,255,255,.1);padding-top:6px;display:flex;flex-direction:column;gap:3px;text-align:left">
+            <div style="font-size:10px"><span style="color:#8b90a0;font-weight:600">進行中</span> <span style="color:#8b90a0">${(execN/vN*100).toFixed(1)}%</span> <span style="color:var(--t3);font-size:9px">(${execN}/${vN})</span></div>
+            <div style="font-size:10px"><span style="color:#ef5350;font-weight:600">停損</span> <span style="color:#ef5350">${(slN/vN*100).toFixed(1)}%</span> <span style="color:var(--t3);font-size:9px">(${slN}/${vN})</span></div>
+           </div>`
+        : '';
+      return `<div style="flex:1;background:${bg};border-radius:9px;padding:12px 8px;text-align:center;min-width:64px">
         <div style="font-size:26px;font-weight:800;color:${col};line-height:1.1">${val}</div>
-        <div style="font-size:11px;color:${col};opacity:.7;margin:2px 0 1px">${pct(val)}</div>
+        <div style="font-size:11px;color:${col};opacity:.7;margin:2px 0 1px">${tot > 0 ? pct(val) : '—'}</div>
         <div style="font-size:11px;color:${col};font-weight:600">${lbl}</div>
-        ${sub?`<div style="font-size:10px;color:var(--t3);margin-top:2px">${sub}</div>`:''}
+        <div style="font-size:10px;color:var(--t3);margin-top:3px">${val} / ${vN}</div>
+        ${subHtml}
       </div>`;
+    };
     box.innerHTML = `
-      <div style="font-size:12px;color:var(--t3);margin-bottom:10px">
-        共 <b style="color:var(--t)">${d.totalGroups}</b> 組（${d.symbolCount} 個幣種）
-        ${d.ongoing?`<span style="color:var(--t3)">｜進行中 ${d.ongoing} 組</span>`:''}
-        <span style="color:var(--t3)">｜第9根市價進場 / SL=第①②⑧根最低高點</span>
-      </div>
-      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px">
-        ${kpi(d.cntTP1, vN, '到達 6.92',  '#f59e0b', 'rgba(245,158,11,.12)',  null)}
-        ${kpi(d.cntTP2, vN, '到達 12.11', '#26a69a', 'rgba(38,166,154,.12)',  null)}
-        ${kpi(d.cntTP3, vN, '到達 17.3',  '#6ee7b7', 'rgba(110,231,183,.12)', null)}
-        ${kpi(d.cntSL,  vN, '停損',        '#ef5350', 'rgba(239,83,80,.12)',   null)}
+      <div style="border:1px solid var(--b);border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="font-size:12px;color:var(--t3);margin-bottom:10px">
+          共 <b style="color:var(--t)">${d.totalGroups}</b> 組（${d.symbolCount} 個幣種）
+          ｜已開單 <b style="color:var(--t)">${vN}</b>，未開單 ${d.cntUnopen||0}
+          <span style="color:var(--t3)">｜第9根市價進場 / SL=第①②⑧根最低高點</span>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          ${kpi(d.cntTP1,     vN, '到達 6.92',  '#f59e0b', 'rgba(245,158,11,.12)',  d.cntExec||0, d.cntSL)}
+          ${kpi(d.cntTP2,     vN, '到達 12.11', '#26a69a', 'rgba(38,166,154,.12)',  d.cntExec||0, d.cntSL)}
+          ${kpi(d.cntTP3,     vN, '到達 17.3',  '#6ee7b7', 'rgba(110,231,183,.12)', d.cntExec||0, d.cntSL)}
+          ${kpi(d.cntSL,      vN, '停損',        '#ef5350', 'rgba(239,83,80,.12)',   null, null)}
+          ${kpi(d.cntExec||0, vN, '進行中',      '#8b90a0', 'rgba(139,144,160,.12)', null, null)}
+        </div>
       </div>
       ${(d.avgRR692||d.avgRR1211||d.avgRR1730)?`
-      <div style="display:flex;gap:14px;align-items:center;padding:6px 10px;background:rgba(167,139,250,.08);border-radius:7px;margin-bottom:10px;font-size:12px">
+      <div style="display:flex;gap:14px;align-items:center;padding:6px 10px;background:rgba(167,139,250,.08);border-radius:7px;margin-bottom:8px;font-size:12px">
         <span style="color:var(--t3)">平均 R:R</span>
         ${d.avgRR692  !=null?`<span>6.92 <b style="color:#a78bfa;font-size:15px">${d.avgRR692}R</b></span>`:''}
         ${d.avgRR1211 !=null?`<span>12.11 <b style="color:#7dd3fc;font-size:15px">${d.avgRR1211}R</b></span>`:''}
         ${d.avgRR1730 !=null?`<span>17.3 <b style="color:#6ee7b7;font-size:15px">${d.avgRR1730}R</b></span>`:''}
         <span style="color:var(--t3);font-size:10px">（停損=1R）</span>
       </div>`:''}
+      ${(()=>{
+        const avg = d.avgRR692;
+        const wins = d.cntTP1||0, losses = d.cntSL||0;
+        if(!avg || (wins===0 && losses===0)) return '';
+        const netRR   = (wins * avg - losses * 1).toFixed(2);
+        const settled = wins + losses;
+        const evRR    = settled > 0 ? ((wins * avg - losses) / settled).toFixed(2) : null;
+        const netCol  = parseFloat(netRR) >= 0 ? '#26a69a' : '#ef5350';
+        const evCol   = evRR !== null ? (parseFloat(evRR) >= 0 ? '#26a69a' : '#ef5350') : '';
+        return '<div style="display:flex;gap:16px;align-items:center;padding:7px 12px;background:rgba(38,166,154,.07);border:1px solid rgba(38,166,154,.2);border-radius:7px;margin-bottom:8px;font-size:12px">'
+          +'<span style="color:var(--t3)">RR 總計</span>'
+          +'<span>已實現 <b style="color:'+netCol+';font-size:15px">'+(parseFloat(netRR)>=0?'+':'')+netRR+'R</b>'
+          +' <span style="color:var(--t3);font-size:10px">('+wins+'勝 × '+avg+'R − '+losses+'損 × 1R)</span></span>'
+          +(evRR!==null?'<span style="border-left:1px solid var(--b);padding-left:14px">每筆期望值 <b style="color:'+evCol+';font-size:15px">'+(parseFloat(evRR)>=0?'+':'')+evRR+'R</b>'
+          +' <span style="color:var(--t3);font-size:10px">(共'+settled+'筆)</span></span>':'')
+          +'</div>';
+      })()}
       <div style="font-size:11px;color:var(--t3)">${iv.toUpperCase()} ${mt}(${mp}) ｜ 各組獨立計算，可同時命中多項</div>`;
   }catch(e){
     box.innerHTML=`<div style="color:var(--r)">錯誤：${e.message}</div>`;
   }
 }
+// ── 自動開單 ───────────────────────────────────────────────────────────────────
+// 取得某幣種「最後一組」Fib（barA 最大）且進行中，不過濾 R:R
+function getLatestActiveFib(r){
+  if(!r.fibs || !r.fibs.length) return null;
+  const curPrice = r.closes && r.closes.length ? r.closes[r.closes.length - 1] : null;
+  if(!curPrice) return null;
+  const dn = r.closes.length;
+
+  // 只看最後一組（barA 最大），已到 6.92 或停損 → 直接略過整個幣種
+  const lastGrp = r.fibs.reduce((a,b) => b.barA > a.barA ? b : a);
+  const isSh = lastGrp.side === 'short';
+  let slP, tp1p;
+
+  if(lastGrp.slPrice != null && lastGrp.tp1Price != null){
+    // 新格式：用預計算結果
+    if(!lastGrp.ongoing) return null;   // 停損/到目標/b9未到 → 略過
+    slP  = lastGrp.slPrice;
+    tp1p = lastGrp.tp1Price;
+  } else {
+    // 舊格式 fallback：前端重算
+    const b9idx = lastGrp.barA + 8;
+    if(b9idx >= dn) return null;
+    const b1 = lastGrp.barA, b2 = lastGrp.barB, b8 = lastGrp.barA + 7;
+    if(isSh){
+      slP = Math.max(r.highs[b1]??-Infinity, r.highs[b2]??-Infinity, r.highs[b8]??-Infinity);
+      if(!isFinite(slP)) return null;
+    } else {
+      slP = Math.min(r.lows[b1]??Infinity, r.lows[b2]??Infinity, r.lows[b8]??Infinity);
+      if(!isFinite(slP)) return null;
+    }
+    const tp1lv = lastGrp.levels.find(([rv])=>Math.abs(rv-6.92)<0.01);
+    if(!tp1lv) return null;
+    tp1p = tp1lv[1];
+    let hitSL=false, hitTP1=false;
+    for(let i=b9idx;i<dn;i++){
+      if(!isSh){ if(r.highs[i]>=tp1p){hitTP1=true;break;} if(r.lows[i]<=slP){hitSL=true;break;} }
+      else      { if(r.lows[i]<=tp1p){hitTP1=true;break;} if(r.highs[i]>=slP){hitSL=true;break;} }
+    }
+    if(hitSL||hitTP1) return null;   // 停損或到目標 → 略過
+  }
+
+  // 當前價確認方向仍有效
+  if(!isSh && curPrice <= slP) return null;
+  if( isSh && curPrice >= slP) return null;
+
+  const risk = Math.abs(curPrice - slP);
+  if(risk <= 0) return null;
+  const rr = Math.abs(tp1p - curPrice) / risk;
+
+  return { grp: lastGrp, entry: curPrice, slP, risk, rr, isSh, tp1: tp1p };
+}
+
+let _autoTrades = [];   // 暫存確認清單
+
+function openAutoTradeModal(){
+  const lossU = parseFloat(document.getElementById('opLossU').value) || 10;
+  _autoTrades = [];
+
+  for(const r of visList){
+    const info = getLatestActiveFib(r);
+    if(!info) continue;
+    const { entry, slP, risk, rr, isSh, tp1 } = info;
+    // 槓桿：實際 SL 距離反推最大安全倍數（liqPrice ≤ SL）
+    const slPct  = risk / entry;
+    const maxLev = Math.min(Math.floor(1 / (slPct + BINGX_MMR)), BINGX_MAX_LEV);
+    if(maxLev < 1) continue;
+    const qty    = lossU / risk;  // 止損觸發 = lossU
+    const posVal = qty * entry;
+    const margin = posVal / maxLev;
+    _autoTrades.push({
+      symbol: r.symbol,
+      displayName: r.displayName || r.symbol,
+      side: isSh ? 'short' : 'long',
+      entry,
+      sl: slP,
+      tp1,
+      rr,
+      leverage: maxLev,
+      qty,
+      margin,
+      lossU
+    });
+  }
+
+  if(!_autoTrades.length){
+    alert('目前篩選清單中沒有符合條件的進行中 Fib 組（請先掃描並確認 R:R 設定）');
+    return;
+  }
+
+  const totalMargin = _autoTrades.reduce((s,t) => s+t.margin, 0);
+  document.getElementById('autoSubTitle').textContent =
+    `市價單 ｜ 每筆損失上限 ${lossU}U ｜ 共 ${_autoTrades.length} 組`;
+  document.getElementById('autoTradeResult').innerHTML = '';
+  document.getElementById('autoTradeStatus').textContent = '';
+  document.getElementById('autoConfirmBtn').disabled = false;
+  document.getElementById('autoConfirmBtn').textContent = '🚀 確認全部開單';
+
+  // 渲染清單
+  const rows = _autoTrades.map((t,i) => `
+    <div style="display:grid;grid-template-columns:1fr 50px 80px 70px 70px 70px 70px 70px;gap:4px;align-items:center;
+      padding:6px 8px;background:${i%2?'transparent':'rgba(255,255,255,.025)'};border-radius:4px;font-size:12px">
+      <div>
+        <span style="font-weight:700;color:${t.side==='long'?'var(--g)':'var(--r)'}">
+          ${t.displayName}
+        </span>
+        <span style="font-size:10px;color:var(--t3);margin-left:4px">${t.side==='long'?'▲ 多':'▼ 空'}</span>
+      </div>
+      <div style="color:var(--t3);font-size:11px">RR ${t.rr.toFixed(1)}</div>
+      <div style="color:var(--t2)">EP: <b>${t.entry.toPrecision(5)}</b></div>
+      <div style="color:var(--r)">SL: ${t.sl.toPrecision(5)}</div>
+      <div style="color:var(--g)">TP: ${t.tp1 ? t.tp1.toPrecision(5) : '—'}</div>
+      <div style="color:#a78bfa">${t.leverage}x</div>
+      <div style="color:var(--t)">${t.qty.toFixed(4)} 張</div>
+      <div style="color:var(--gold)">${t.margin.toFixed(2)}U</div>
+    </div>`).join('');
+
+  const hdr = `<div style="display:grid;grid-template-columns:1fr 50px 80px 70px 70px 70px 70px 70px;gap:4px;
+    padding:4px 8px;font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--b);margin-bottom:4px">
+    <div>幣種</div><div>R:R</div><div>入場</div><div>止損</div><div>止盈(6.92)</div><div>槓桿</div><div>數量</div><div>保證金</div>
+  </div>`;
+  document.getElementById('autoTradeList').innerHTML = hdr + rows;
+  document.getElementById('autoTradeSummary').innerHTML =
+    `共 <b style="color:var(--t)">${_autoTrades.length}</b> 筆 ｜ 總保證金需求 <b style="color:var(--gold)">${totalMargin.toFixed(2)} U</b> ｜ 每筆最多損 <b style="color:var(--r)">${lossU} U</b>`;
+
+  document.getElementById('autoOverlay').classList.add('open');
+}
+
+function closeAutoModal(){
+  document.getElementById('autoOverlay').classList.remove('open');
+}
+
+async function executeAutoTrades(){
+  if(!_autoTrades.length) return;
+  const btn = document.getElementById('autoConfirmBtn');
+  const statusEl = document.getElementById('autoTradeStatus');
+  const resultEl = document.getElementById('autoTradeResult');
+  btn.disabled = true;
+  btn.textContent = `送出中（共 ${_autoTrades.length} 筆）...`;
+  resultEl.innerHTML = '';
+  statusEl.textContent = `同時送出 ${_autoTrades.length} 筆...`;
+
+  const placeOne = async (t) => {
+    try{
+      const res = await fetch('/api/place_order',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          symbol: t.symbol,
+          order_type: 'MARKET',
+          side: t.side,
+          margin_mode: 'isolated',
+          entry: null,
+          sl: t.sl,
+          tp1: t.tp1 || null,
+          tp1_pct: t.tp1 ? 100 : 0,
+          quantity: t.qty,
+          leverage: t.leverage
+        })
+      });
+      const d = await res.json();
+      if(d.ok)
+        return `<div style="color:var(--g)">✓ ${t.displayName} (${t.side==='long'?'多':'空'}) ${t.leverage}x — 成功</div>`;
+      const msg = d.error || (d.results&&d.results[0]&&d.results[0].response&&d.results[0].response.msg) || JSON.stringify(d);
+      return `<div style="color:var(--r)">✗ ${t.displayName} — ${msg}</div>`;
+    }catch(e){
+      return `<div style="color:var(--r)">✗ ${t.displayName} — ${e.message}</div>`;
+    }
+  };
+
+  // 每批最多 5 筆同時送出
+  const results = [];
+  for(let i = 0; i < _autoTrades.length; i += 5){
+    const batch = _autoTrades.slice(i, i + 5);
+    const batchResults = await Promise.all(batch.map(placeOne));
+    results.push(...batchResults);
+  }
+
+  statusEl.textContent = `完成 ${_autoTrades.length} 筆`;
+  resultEl.innerHTML = results.join('');
+  btn.textContent = '✓ 已完成';
+}
+
+// 掃描完成後顯示自動開單按鈕
+function updateAutoTradeBtn(){
+  const hasFib = visList.some(r => r.fibs && r.fibs.length > 0);
+  document.getElementById('autoTradeBtn').style.display = hasFib ? '' : 'none';
+}
+
+// ── 背景自動開單 ──────────────────────────────────────────────────────────────
+let _bgPollTimer = null;
+
+function openBgTradePanel(){
+  document.getElementById('bgOverlay').classList.add('open');
+  bgPollStatus();
+}
+function closeBgPanel(){
+  document.getElementById('bgOverlay').classList.remove('open');
+  if(_bgPollTimer){ clearInterval(_bgPollTimer); _bgPollTimer = null; }
+}
+
+function bgStart(){
+  const body = {
+    interval:        document.getElementById('bgInterval').value,
+    ma_period:       parseInt(document.getElementById('bgMaPeriod').value),
+    scan_count:      parseInt(document.getElementById('bgScanCount').value),
+    filter_mode:     document.getElementById('bgFilterMode').value,
+    trigger_minutes: 0,   // 0 = 依 K 線週期
+    loss_u:          parseFloat(document.getElementById('bgLossU').value),
+    max_trades:      parseInt(document.getElementById('bgMaxTrades').value),
+    min_rr:          parseFloat(document.getElementById('bgMinRR').value),
+    max_margin_usdt: parseFloat(document.getElementById('bgMaxMargin').value) || 0,
+  };
+  fetch('/api/bg_trade/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if(!_bgPollTimer) _bgPollTimer = setInterval(bgPollStatus, 3000);
+      bgPollStatus();
+    });
+}
+
+function bgStop(){
+  fetch('/api/bg_trade/stop',{method:'POST'}).then(()=>bgPollStatus());
+}
+
+function bgPollStatus(){
+  fetch('/api/bg_trade/status').then(r=>r.json()).then(d=>{
+    // 狀態點
+    const dot = document.getElementById('bgDot');
+    const txt = document.getElementById('bgStatusTxt');
+    const statusMap = {
+      stopped:  ['var(--t3)',  '已停止'],
+      stopping: ['var(--r)',   '停止中...'],
+      scanning: ['var(--gold)','掃描中...'],
+      waiting:  ['var(--g)',   '等待下一輪'],
+    };
+    const [clr, label] = statusMap[d.status] || ['var(--t3)', d.status];
+    dot.style.background = clr;
+    txt.textContent = label;
+
+    const rc = document.getElementById('bgRunCount');
+    rc.textContent = d.run_count ? `已執行 ${d.run_count} 次` : '';
+
+    const nr = document.getElementById('bgNextRun');
+    nr.textContent = d.next_run ? `下次 ${d.next_run}` : '';
+
+    // 按鈕狀態
+    document.getElementById('bgStartBtn').textContent = d.running ? '🔄 更新設定' : '▶ 啟動背景開單';
+    document.getElementById('bgStopBtn').style.opacity = d.running ? '1' : '0.4';
+
+    // 輪詢
+    if(d.running && !_bgPollTimer) _bgPollTimer = setInterval(bgPollStatus, 3000);
+    if(!d.running && _bgPollTimer){ clearInterval(_bgPollTimer); _bgPollTimer = null; }
+
+    // 同步設定到 UI
+    if(d.settings){
+      const s = d.settings;
+      document.getElementById('bgInterval').value    = s.interval || '15m';
+      document.getElementById('bgMaPeriod').value    = s.ma_period || 55;
+      document.getElementById('bgScanCount').value   = s.scan_count || 150;
+      document.getElementById('bgFilterMode').value  = s.filter_mode || 'chgrank';
+      document.getElementById('bgLossU').value       = s.loss_u || 10;
+      document.getElementById('bgMaxTrades').value   = s.max_trades || 5;
+      document.getElementById('bgMinRR').value       = s.min_rr || 0;
+      document.getElementById('bgMaxMargin').value   = s.max_margin_usdt ?? 30;
+    }
+
+    // 渲染 log
+    renderBgLog(d.log || []);
+  }).catch(()=>{});
+}
+
+function renderBgLog(logs){
+  const el = document.getElementById('bgLog');
+  if(!logs.length){ el.innerHTML='<div style="color:var(--t3);padding:8px">尚無執行記錄</div>'; return; }
+  el.innerHTML = logs.map((r,i)=>{
+    const clr = r.error ? 'var(--r)' : r.traded > 0 ? 'var(--g)' : 'var(--t2)';
+    const trades = (r.trades||[]).map(t=>`
+      <div style="padding:3px 8px;margin:2px 0;background:${t.ok?'rgba(38,166,154,.08)':'rgba(239,83,80,.08)'};border-radius:4px">
+        <span style="color:${t.side==='long'?'var(--g)':'var(--r)'}">
+          ${t.side==='long'?'▲':'▼'} ${t.symbol.replace('-USDT','')}
+        </span>
+        <span style="color:var(--t2);margin-left:6px">${t.leverage}x</span>
+        <span style="color:var(--t3);margin-left:6px">RR ${t.rr}</span>
+        <span style="margin-left:6px;color:${t.ok?'var(--g)':'var(--r)'}">
+          ${t.ok ? '✓' : '✗'} ${t.msg}
+        </span>
+      </div>`).join('');
+    return `<div style="border:1px solid var(--b);border-radius:6px;margin-bottom:6px;overflow:hidden">
+      <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--bg3);font-size:11px">
+        <span style="color:var(--t3)">${r.time}</span>
+        <span style="color:var(--t2)">掃 ${r.scanned} 幣</span>
+        <span style="color:var(--ac)">找到 ${r.found} 組</span>
+        <span style="color:${clr};font-weight:700">開 ${r.traded} 單</span>
+        ${r.skipped?`<span style="color:var(--t3)">跳過 ${r.skipped}</span>`:''}
+        ${r.error?`<span style="color:var(--r)">⚠ ${r.error}</span>`:''}
+      </div>
+      ${trades ? `<div style="padding:4px 6px">${trades}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// 開啟面板時先拉一次狀態
+document.getElementById('bgOverlay').addEventListener('click', ()=>{});
+
 // ── 心跳：每 4 秒送一次 ping，關閉網頁時 server 自動停止 ──────────────
 (function(){
   function ping(){ fetch('/api/ping', {method:'POST'}).catch(()=>{}); }
@@ -1883,6 +2424,103 @@ async function runBacktest(){
     </div>
     <div id="statContent"></div>
     <div id="statList" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 背景自動開單面板 -->
+<div class="stat-overlay" id="bgOverlay" onclick="if(event.target===this)closeBgPanel()">
+  <div class="stat-box" style="width:min(700px,96vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:15px;font-weight:700;color:var(--ac)">⚙ 背景自動開單</div>
+      <button onclick="closeBgPanel()" style="background:transparent;border:none;color:var(--t2);font-size:18px;cursor:pointer">✕</button>
+    </div>
+
+    <!-- 狀態列 -->
+    <div id="bgStatus" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border-radius:6px;margin-bottom:12px;font-size:12px">
+      <span id="bgDot" style="width:8px;height:8px;border-radius:50%;background:var(--t3);flex-shrink:0"></span>
+      <span id="bgStatusTxt" style="color:var(--t2)">已停止</span>
+      <span style="margin-left:auto;color:var(--t3)" id="bgRunCount"></span>
+      <span id="bgNextRun" style="color:var(--gold)"></span>
+    </div>
+
+    <!-- 設定區 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="cg"><label>K線週期</label>
+        <select id="bgInterval">
+          <option value="1m">1m</option><option value="3m">3m</option>
+          <option value="5m">5m</option><option value="15m" selected>15m</option>
+          <option value="30m">30m</option><option value="1h">1h</option>
+          <option value="2h">2h</option><option value="4h">4h</option>
+        </select>
+      </div>
+      <div class="cg"><label>MA 週期</label>
+        <input id="bgMaPeriod" type="number" value="55" min="5" max="200" style="width:100%">
+      </div>
+      <div class="cg"><label>掃描數量（幣）</label>
+        <input id="bgScanCount" type="number" value="150" min="10" max="500" style="width:100%">
+      </div>
+      <div class="cg"><label>篩選模式</label>
+        <select id="bgFilterMode">
+          <option value="chgrank" selected>漲跌幅排行</option>
+          <option value="volrank">成交量排行</option>
+        </select>
+      </div>
+      <div class="cg"><label>每筆損失上限（U）</label>
+        <input id="bgLossU" type="number" value="10" min="1" step="0.5" style="width:100%">
+      </div>
+      <div class="cg"><label>每輪最多開單筆數</label>
+        <input id="bgMaxTrades" type="number" value="15" min="1" max="100" style="width:100%">
+      </div>
+      <div class="cg"><label>最低 R:R（0=不限）</label>
+        <input id="bgMinRR" type="number" value="4" min="0" step="0.5" style="width:100%">
+      </div>
+      <div class="cg"><label>每筆保證金上限（U，0=不限）</label>
+        <input id="bgMaxMargin" type="number" value="30" min="0" step="10" style="width:100%">
+      </div>
+    </div>
+
+    <!-- 操作按鈕 -->
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button id="bgStartBtn" onclick="bgStart()"
+        style="flex:1;padding:9px;background:var(--ac);border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">
+        ▶ 啟動背景開單
+      </button>
+      <button id="bgStopBtn" onclick="bgStop()"
+        style="flex:1;padding:9px;background:var(--bg3);border:1px solid var(--b2);border-radius:6px;color:var(--t2);font-size:13px;cursor:pointer">
+        ■ 停止
+      </button>
+    </div>
+
+    <!-- 執行記錄 -->
+    <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">執行記錄</div>
+    <div id="bgLog" style="max-height:320px;overflow-y:auto;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- 自動開單確認彈窗 -->
+<div class="stat-overlay" id="autoOverlay" onclick="if(event.target===this)closeAutoModal()">
+  <div class="stat-box" style="width:min(680px,96vw)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div>
+        <div class="stat-title">🤖 批量自動開單</div>
+        <div class="stat-sub" id="autoSubTitle">市價單 ｜ 最新進行中 Fib 組</div>
+      </div>
+      <button onclick="closeAutoModal()" style="background:none;border:none;color:var(--t3);font-size:20px;cursor:pointer;padding:4px">✕</button>
+    </div>
+    <div id="autoTradeList" style="margin:12px 0;max-height:52vh;overflow-y:auto"></div>
+    <div id="autoTradeSummary" style="font-size:12px;color:var(--t3);padding:8px 0;border-top:1px solid var(--b)"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+      <button id="autoConfirmBtn" onclick="executeAutoTrades()"
+        style="height:34px;padding:0 20px;background:var(--g);color:#fff;border:none;border-radius:var(--rads);font-size:13px;font-weight:600;cursor:pointer">
+        🚀 確認全部開單
+      </button>
+      <button onclick="closeAutoModal()"
+        style="height:34px;padding:0 16px;background:var(--bg4);color:var(--t2);border:1px solid var(--b2);border-radius:var(--rads);font-size:13px;cursor:pointer">
+        取消
+      </button>
+      <span id="autoTradeStatus" style="font-size:12px;color:var(--t2)"></span>
+    </div>
+    <div id="autoTradeResult" style="margin-top:12px;font-size:12px;max-height:200px;overflow-y:auto"></div>
   </div>
 </div>
 </body>
