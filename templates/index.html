@@ -223,6 +223,7 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
   <button class="bstat" onclick="openStatModal()">📊 統計</button>
   <button class="bstat" id="autoTradeBtn" onclick="openAutoTradeModal()" style="background:rgba(38,166,154,.15);border-color:rgba(38,166,154,.5);color:#26a69a;display:none">🤖 自動開單</button>
   <button class="bstat" id="bgTradeBtn" onclick="openBgTradePanel()" style="background:rgba(79,127,255,.15);border-color:rgba(79,127,255,.5);color:#4f7fff">⚙ 背景開單</button>
+  <a href="/log" target="_blank" class="bstat" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:var(--gold);text-decoration:none">📋 開單記錄</a>
 </div>
 
 <div class="fbar">
@@ -2284,6 +2285,27 @@ function updateAutoTradeBtn(){
   document.getElementById('autoTradeBtn').style.display = hasFib ? '' : 'none';
 }
 
+// ── 時間轉換（UTC → 本地）────────────────────────────────────────────────────
+function utcStrToLocal(str){
+  // str 格式：'2026-06-02 10:30:00'（server 送的是 UTC）
+  if(!str) return str;
+  // 加 'Z' 讓瀏覽器認作 UTC
+  const d = new Date(str.replace(' ', 'T') + 'Z');
+  if(isNaN(d)) return str;
+  return d.toLocaleString('zh-TW', {
+    month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  });
+}
+function utcTimeToLocal(timeStr){
+  // timeStr 格式：'18:04:32'（今天的 UTC 時間）
+  if(!timeStr) return timeStr;
+  const today = new Date().toISOString().slice(0,10);
+  const d = new Date(today + 'T' + timeStr + 'Z');
+  if(isNaN(d)) return timeStr;
+  return d.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+}
+
 // ── 背景自動開單 ──────────────────────────────────────────────────────────────
 let _bgPollTimer = null;
 
@@ -2338,7 +2360,7 @@ function bgPollStatus(){
     rc.textContent = d.run_count ? `已執行 ${d.run_count} 次` : '';
 
     const nr = document.getElementById('bgNextRun');
-    nr.textContent = d.next_run ? `下次 ${d.next_run}` : '';
+    nr.textContent = d.next_run ? `下次 ${utcTimeToLocal(d.next_run)}` : '';
 
     // 按鈕狀態
     document.getElementById('bgStartBtn').textContent = d.running ? '🔄 更新設定' : '▶ 啟動背景開單';
@@ -2384,7 +2406,7 @@ function renderBgLog(logs){
       </div>`).join('');
     return `<div style="border:1px solid var(--b);border-radius:6px;margin-bottom:6px;overflow:hidden">
       <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--bg3);font-size:11px">
-        <span style="color:var(--t3)">${r.time}</span>
+        <span style="color:var(--t3)">${utcStrToLocal(r.time)}</span>
         <span style="color:var(--t2)">掃 ${r.scanned} 幣</span>
         <span style="color:var(--ac)">找到 ${r.found} 組</span>
         <span style="color:${clr};font-weight:700">開 ${r.traded} 單</span>

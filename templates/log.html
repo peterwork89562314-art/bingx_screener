@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>背景開單記錄</title>
+<style>
+:root{
+  --bg:#0d0f14;--bg2:#141720;--bg3:#1c2030;--bg4:#242840;
+  --b:rgba(255,255,255,.07);--b2:rgba(255,255,255,.15);
+  --t:#e8eaf0;--t2:#8b90a0;--t3:#4a4f60;
+  --g:#26a69a;--r:#ef5350;--ac:#4f7fff;--gold:#f59e0b;
+  --rad:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;font-size:13px;}
+
+.hdr{background:var(--bg2);border-bottom:1px solid var(--b);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;}
+.hdr h1{font-size:15px;font-weight:700;color:var(--ac);}
+.hdr-right{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--t3);}
+#statusDot{width:8px;height:8px;border-radius:50%;background:var(--t3);display:inline-block;}
+#statusDot.on{background:var(--g);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+.toolbar{padding:10px 20px;display:flex;gap:10px;align-items:center;background:var(--bg2);border-bottom:1px solid var(--b);}
+.filter-btn{padding:4px 12px;border-radius:20px;border:1px solid var(--b);background:var(--bg3);color:var(--t2);cursor:pointer;font-size:11px;transition:all .12s;}
+.filter-btn:hover{border-color:var(--b2);color:var(--t);}
+.filter-btn.on{background:rgba(79,127,255,.15);border-color:var(--ac);color:var(--ac);}
+.search{background:var(--bg3);border:1px solid var(--b);border-radius:6px;color:var(--t);padding:5px 10px;font-size:12px;outline:none;width:160px;}
+.search:focus{border-color:var(--ac);}
+.stat-bar{display:flex;gap:20px;padding:8px 20px;background:var(--bg3);border-bottom:1px solid var(--b);font-size:11px;color:var(--t3);}
+.stat-bar b{color:var(--t);}
+
+/* 輪次區塊 */
+.round{margin:10px 16px;border:1px solid var(--b);border-radius:var(--rad);overflow:hidden;}
+.round-hdr{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg2);cursor:pointer;user-select:none;}
+.round-hdr:hover{background:var(--bg3);}
+.round-time{font-size:11px;color:var(--t3);}
+.round-stats{display:flex;gap:8px;margin-left:auto;font-size:11px;}
+.badge{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;}
+.badge-ok{background:rgba(38,166,154,.15);color:var(--g);}
+.badge-skip{background:rgba(79,127,255,.1);color:var(--t2);}
+.badge-err{background:rgba(239,83,80,.12);color:var(--r);}
+.chevron{color:var(--t3);font-size:10px;transition:transform .2s;}
+.chevron.open{transform:rotate(90deg);}
+
+/* 交易列表 */
+.trades{display:none;}
+.trades.open{display:block;}
+.trade-row{display:grid;grid-template-columns:130px 50px 90px 90px 90px 70px 60px 1fr;gap:6px;align-items:center;padding:7px 12px;border-top:1px solid var(--b);font-size:12px;}
+.trade-row:hover{background:rgba(255,255,255,.02);}
+.trade-hdr{background:var(--bg3);font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;}
+.side-long{color:var(--g);}
+.side-short{color:var(--r);}
+.ok-tag{color:var(--g);}
+.fail-tag{color:var(--r);font-size:11px;}
+
+/* 空狀態 */
+.empty{text-align:center;padding:60px 20px;color:var(--t3);}
+
+/* 捲軸 */
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px;}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>📋 背景開單記錄</h1>
+  <div class="hdr-right">
+    <span id="statusDot"></span>
+    <span id="statusTxt">載入中...</span>
+    <span id="runCount"></span>
+    <a href="/" style="color:var(--ac);text-decoration:none;font-size:12px">← 返回主頁</a>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button class="filter-btn on" data-f="all" onclick="setFilter('all',this)">全部</button>
+  <button class="filter-btn" data-f="ok"  onclick="setFilter('ok',this)">✓ 成功</button>
+  <button class="filter-btn" data-f="fail" onclick="setFilter('fail',this)">✗ 失敗</button>
+  <button class="filter-btn" data-f="long" onclick="setFilter('long',this)">▲ 多單</button>
+  <button class="filter-btn" data-f="short" onclick="setFilter('short',this)">▼ 空單</button>
+  <input class="search" id="searchBox" placeholder="搜尋幣種..." oninput="renderLog()">
+  <span style="margin-left:auto;font-size:11px;color:var(--t3)" id="totalCount"></span>
+</div>
+
+<div class="stat-bar" id="statBar"></div>
+<div id="logWrap"></div>
+
+<script>
+let _log = [];
+let _filter = 'all';
+
+function utcToLocal(str){
+  if(!str) return '';
+  const d = new Date(str.replace(' ','T')+'Z');
+  if(isNaN(d)) return str;
+  return d.toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+}
+
+function setFilter(f, el){
+  _filter = f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('on'));
+  el.classList.add('on');
+  renderLog();
+}
+
+function renderLog(){
+  const kw = (document.getElementById('searchBox').value||'').toUpperCase();
+  const wrap = document.getElementById('logWrap');
+
+  // 統計
+  let totOk=0, totFail=0, totSkip=0;
+  _log.forEach(r=>{
+    totOk   += r.traded||0;
+    totSkip += r.skipped||0;
+    (r.trades||[]).forEach(t=>{ if(!t.ok) totFail++; });
+  });
+  document.getElementById('statBar').innerHTML =
+    `總開單 <b>${totOk}</b> &nbsp;｜&nbsp; 失敗 <b style="color:var(--r)">${totFail}</b> &nbsp;｜&nbsp; 跳過 <b>${totSkip}</b> &nbsp;｜&nbsp; 執行輪次 <b>${_log.length}</b>`;
+
+  let html = '';
+  let shown = 0;
+
+  for(const round of _log){
+    const trades = (round.trades||[]).filter(t=>{
+      if(kw && !t.symbol.includes(kw)) return false;
+      if(_filter==='ok'    && !t.ok) return false;
+      if(_filter==='fail'  && t.ok)  return false;
+      if(_filter==='long'  && t.side!=='long')  return false;
+      if(_filter==='short' && t.side!=='short') return false;
+      return true;
+    });
+
+    if(!trades.length && kw) continue;
+    shown += trades.length;
+
+    const okCnt   = trades.filter(t=>t.ok).length;
+    const failCnt = trades.filter(t=>!t.ok).length;
+    const rid = 'r'+round.time.replace(/[^0-9]/g,'');
+
+    html += `<div class="round">
+      <div class="round-hdr" onclick="toggleRound('${rid}')">
+        <span class="chevron" id="chev_${rid}">▶</span>
+        <span class="round-time">${utcToLocal(round.time)}</span>
+        <span style="color:var(--t2);font-size:11px">掃 ${round.scanned} 幣 ｜ 找 ${round.found} 組</span>
+        <div class="round-stats">
+          ${okCnt   ? `<span class="badge badge-ok">✓ ${okCnt}</span>`   : ''}
+          ${failCnt ? `<span class="badge badge-err">✗ ${failCnt}</span>` : ''}
+          ${round.skipped ? `<span class="badge badge-skip">跳 ${round.skipped}</span>` : ''}
+          ${round.error   ? `<span class="badge badge-err">ERR</span>` : ''}
+        </div>
+      </div>
+      <div class="trades" id="${rid}">
+        <div class="trade-row trade-hdr">
+          <div>幣種</div><div>方向</div><div>入場</div><div>止損</div><div>止盈 6.92</div><div>RR</div><div>槓桿</div><div>結果</div>
+        </div>
+        ${trades.length ? trades.map(t=>`
+          <div class="trade-row">
+            <div style="font-weight:700">${t.symbol.replace('-USDT','')}/USDT.P</div>
+            <div class="${t.side==='long'?'side-long':'side-short'}">${t.side==='long'?'▲ 多':'▼ 空'}</div>
+            <div>${t.entry}</div>
+            <div style="color:var(--r)">${t.sl}</div>
+            <div style="color:var(--g)">${t.tp1||'—'}</div>
+            <div style="color:#a78bfa">${t.rr}R</div>
+            <div>${t.leverage}x</div>
+            <div>${t.ok
+              ? `<span class="ok-tag">✓ 成功</span>`
+              : `<span class="fail-tag">✗ ${t.msg||'失敗'}</span>`}
+            </div>
+          </div>`).join('')
+        : `<div style="padding:10px 12px;color:var(--t3);font-size:11px">此輪無符合條件的交易</div>`}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('totalCount').textContent = `顯示 ${shown} 筆`;
+  wrap.innerHTML = html || `<div class="empty">尚無開單記錄</div>`;
+
+  // 預設展開第一輪
+  if(_log.length){
+    const firstId = 'r'+_log[0].time.replace(/[^0-9]/g,'');
+    openRound(firstId);
+  }
+}
+
+function toggleRound(id){
+  const el = document.getElementById(id);
+  const ch = document.getElementById('chev_'+id);
+  if(!el) return;
+  const isOpen = el.classList.toggle('open');
+  if(ch) ch.classList.toggle('open', isOpen);
+}
+
+function openRound(id){
+  const el = document.getElementById(id);
+  const ch = document.getElementById('chev_'+id);
+  if(el){ el.classList.add('open'); }
+  if(ch){ ch.classList.add('open'); }
+}
+
+async function fetchStatus(){
+  try{
+    const d = await fetch('/api/bg_trade/status').then(r=>r.json());
+    _log = d.log || [];
+
+    const dot = document.getElementById('statusDot');
+    const statusMap = {stopped:['','已停止'],stopping:['','停止中'],scanning:['on','掃描中'],waiting:['on','等待下一輪']};
+    const [cls,lbl] = statusMap[d.status]||['',''];
+    dot.className = cls;
+    document.getElementById('statusTxt').textContent = lbl;
+    document.getElementById('runCount').textContent = d.run_count ? `已執行 ${d.run_count} 次` : '';
+
+    renderLog();
+  }catch(e){}
+}
+
+setInterval(fetchStatus, 5000);
+fetchStatus();
+</script>
+</body>
+</html>

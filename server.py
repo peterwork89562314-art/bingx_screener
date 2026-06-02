@@ -118,9 +118,15 @@ def get_all_tickers():
     return result
 
 # ── K線 ───────────────────────────────────────────────────────────────────────
-def get_klines(symbol, interval, limit=200):
-    data = bget("/openApi/swap/v3/quote/klines",
-                {"symbol": symbol, "interval": interval, "limit": limit})
+def get_klines(symbol, interval, limit=200, timeout=12):
+    try:
+        r = requests.get(BINGX + "/openApi/swap/v3/quote/klines",
+                         params={"symbol": symbol, "interval": interval, "limit": limit},
+                         timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return []
     result = []
     for k in data.get("data", []):
         if isinstance(k, dict):
@@ -1180,7 +1186,29 @@ _bg = {
     "next_run":  None,
     "run_count": 0,
 }
-BG_LOG_MAX = 200
+BG_LOG_MAX  = 200
+BG_LOG_PATH = os.path.join(os.path.dirname(__file__), "bg_log.json")
+
+
+def _save_bg_log():
+    try:
+        with open(BG_LOG_PATH, "w", encoding="utf-8") as f:
+            json.dump(_bg["log"], f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _load_bg_log():
+    try:
+        if os.path.exists(BG_LOG_PATH):
+            with open(BG_LOG_PATH, encoding="utf-8") as f:
+                _bg["log"] = json.load(f)
+    except Exception:
+        pass
+
+
+# 啟動時讀取上次的 log
+_load_bg_log()
 
 
 def _bg_open_positions():
@@ -1198,7 +1226,7 @@ def _bg_open_positions():
 def _bg_scan_sym(sym, iv, mp, mt):
     """掃描單一幣種：只看最後一組（barA最大），已停損或到TP1則略過整個幣種"""
     try:
-        klines = get_klines(sym, iv, 100)
+        klines = get_klines(sym, iv, 75, timeout=5)
         if len(klines) < mp + 20:
             return None
         closes = [k[4] for k in klines]
@@ -1290,7 +1318,7 @@ def _bg_run_once():
     max_margin  = float(s.get("max_margin_usdt", 0))
 
     log = {
-        "time":    (datetime.utcnow() + __import__('datetime').timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
+        "time":    datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         "scanned": 0, "found": 0, "traded": 0, "skipped": 0,
         "trades":  [], "error": None,
     }
@@ -1308,10 +1336,10 @@ def _bg_run_once():
         log["scanned"] = len(syms)
 
         # 平行掃描
-        with ThreadPoolExecutor(max_workers=12) as ex:
+        with ThreadPoolExecutor(max_workers=30) as ex:
             raw = list(ex.map(lambda s: _bg_scan_sym(s, iv, mp, mt), syms))
         # min_rr 用 Fib 1.0（b9理論入場）過濾，與 modal 顯示一致
-        cands = [r for r in raw if r and (min_rr <= 0 or r.get("rr_ref", 0) >= min_rr)]
+        cands = [r for r in raw if r and (min_rr <= 0 or r["info"]["rr"] >= min_rr)]
         cands.sort(key=lambda c: c["info"]["rr"], reverse=True)
         log["found"] = len(cands)
 
@@ -1357,7 +1385,8 @@ def _bg_run_once():
                 "symbol": sym, "side": "short" if isSh else "long",
                 "entry": round(entry, 6), "sl": round(sl_p, 6),
                 "tp1": round(tp1, 6), "leverage": max_lev,
-                "qty": qty, "margin": margin, "rr": round(info["rr"], 2),
+                "qty": qty, "margin": margin,
+                "rr": round(info["rr"], 2),   # 當前市價計算的 RR
                 "ok": False, "msg": "",
             }
 
@@ -1438,6 +1467,7 @@ def _bg_loop():
         _bg["log"].insert(0, run_log)
         _bg["log"] = _bg["log"][:BG_LOG_MAX]
         _bg["run_count"] += 1
+        _save_bg_log()
 
         if not _bg["running"]:
             break
@@ -1494,8 +1524,13 @@ def bg_trade_status():
         "last_run":  _bg["last_run"],
         "next_run":  _bg["next_run"],
         "run_count": _bg["run_count"],
-        "log":       _bg["log"][:30],
+        "log":       _bg["log"][:200],
     })
+
+
+@app.route("/log")
+def trade_log_page():
+    return render_template("log.html")
 
 
 @app.route("/api/backtest_fib", methods=["GET","POST"])
