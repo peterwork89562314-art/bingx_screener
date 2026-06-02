@@ -1226,7 +1226,7 @@ def _bg_open_positions():
 def _bg_scan_sym(sym, iv, mp, mt):
     """掃描單一幣種：只看最後一組（barA最大），已停損或到TP1則略過整個幣種"""
     try:
-        klines = get_klines(sym, iv, 75, timeout=5)
+        klines = get_klines(sym, iv, 65, timeout=5)
         if len(klines) < mp + 20:
             return None
         closes = [k[4] for k in klines]
@@ -1318,9 +1318,9 @@ def _bg_run_once():
     max_margin  = float(s.get("max_margin_usdt", 0))
 
     log = {
-        "time":    datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-        "scanned": 0, "found": 0, "traded": 0, "skipped": 0,
-        "trades":  [], "error": None,
+        "time":     datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        "scanned":  0, "found": 0, "traded": 0, "skipped": 0,
+        "trades":   [], "skipped_list": [], "error": None,
     }
 
     try:
@@ -1358,6 +1358,7 @@ def _bg_run_once():
 
             if sym in open_pos:
                 log["skipped"] += 1
+                log["skipped_list"].append({"symbol": sym, "reason": "已有倉位"})
                 continue
 
             entry = info["entry"]
@@ -1379,6 +1380,7 @@ def _bg_run_once():
             # 每筆保證金上限檢查
             if max_margin > 0 and margin > max_margin:
                 log["skipped"] += 1
+                log["skipped_list"].append({"symbol": sym, "reason": f"保證金 {margin:.1f}U > 上限 {max_margin}U"})
                 continue
 
             rec = {
