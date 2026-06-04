@@ -1226,7 +1226,7 @@ def _bg_open_positions():
 def _bg_scan_sym(sym, iv, mp, mt):
     """掃描單一幣種：只看最後一組（barA最大），已停損或到TP1則略過整個幣種"""
     try:
-        klines = get_klines(sym, iv, 80, timeout=5)
+        klines = get_klines(sym, iv, 75, timeout=5)
         if len(klines) < mp + 20:
             return None
         closes = [k[4] for k in klines]
