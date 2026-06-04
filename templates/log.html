@@ -111,6 +111,11 @@ function renderLog(){
   const kw = (document.getElementById('searchBox').value||'').toUpperCase();
   const wrap = document.getElementById('logWrap');
 
+  // 記住目前展開的輪次
+  const openIds = new Set();
+  wrap.querySelectorAll('.trades.open').forEach(el => openIds.add(el.id));
+  const isFirstRender = openIds.size === 0;
+
   // 統計
   let totOk=0, totFail=0, totSkip=0;
   _log.forEach(r=>{
@@ -157,6 +162,16 @@ function renderLog(){
         <div class="trade-row trade-hdr">
           <div>幣種</div><div>方向</div><div>入場</div><div>止損</div><div>止盈 6.92</div><div>RR</div><div>槓桿</div><div>結果</div>
         </div>
+        ${(round.skipped_list||[]).length ? `
+          <div style="padding:6px 12px;background:rgba(79,127,255,.05);border-top:1px solid var(--b)">
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;margin-bottom:4px">跳過（${round.skipped_list.length}）</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${round.skipped_list.map(s=>`
+                <span style="font-size:11px;padding:2px 7px;border-radius:10px;background:var(--bg3);color:var(--t2)">
+                  ${s.symbol.replace('-USDT','')} <span style="color:var(--t3)">${s.reason}</span>
+                </span>`).join('')}
+            </div>
+          </div>` : ''}
         ${trades.length ? trades.map(t=>`
           <div class="trade-row">
             <div style="font-weight:700">${t.symbol.replace('-USDT','')}/USDT.P</div>
@@ -179,10 +194,12 @@ function renderLog(){
   document.getElementById('totalCount').textContent = `顯示 ${shown} 筆`;
   wrap.innerHTML = html || `<div class="empty">尚無開單記錄</div>`;
 
-  // 預設展開第一輪
-  if(_log.length){
+  // 還原展開狀態；第一次渲染預設展開第一輪
+  if(isFirstRender && _log.length){
     const firstId = 'r'+_log[0].time.replace(/[^0-9]/g,'');
     openRound(firstId);
+  } else {
+    openIds.forEach(id => openRound(id));
   }
 }
 
