@@ -1383,10 +1383,14 @@ def _bg_run_once():
                 log["skipped_list"].append({"symbol": sym, "reason": f"保證金 {margin:.1f}U > 上限 {max_margin}U"})
                 continue
 
+            # TP1 = entry 到 6.92 的一半距離（RR/2），平 50%
+            # TP2 = Fib 6.92，平剩餘 50%
+            tp_half = round((entry + tp1) / 2, 6)
+
             rec = {
                 "symbol": sym, "side": "short" if isSh else "long",
                 "entry": round(entry, 6), "sl": round(sl_p, 6),
-                "tp1": round(tp1, 6), "leverage": max_lev,
+                "tp1": tp_half, "tp2": round(tp1, 6), "leverage": max_lev,
                 "qty": qty, "margin": margin,
                 "rr": round(info["rr"], 2),   # 當前市價計算的 RR
                 "ok": False, "msg": "",
@@ -1428,13 +1432,27 @@ def _bg_run_once():
                     filled_qty  = float(order_data.get("executedQty") or order_data.get("quantity") or qty)
                     if filled_qty <= 0:
                         filled_qty = qty
+                    # TP1：RR/2 位置，平 50%
+                    qty_tp1 = round(filled_qty * 0.5, 4)
                     r2 = bpost_auth("/openApi/swap/v2/trade/order", {
                         "symbol": sym, "side": cside, "positionSide": ps,
-                        "type": "TAKE_PROFIT_MARKET", "stopPrice": tp1,
-                        "quantity": filled_qty, "workingType": "MARK_PRICE",
+                        "type": "TAKE_PROFIT_MARKET", "stopPrice": tp_half,
+                        "quantity": qty_tp1, "workingType": "MARK_PRICE",
                     })
+                    tp_msg = ""
                     if r2.get("code", -1) != 0:
-                        rec["msg"] += f" (TP失敗:{r2.get('msg','')})"
+                        tp_msg += f" (TP1失敗:{r2.get('msg','')})"
+                    # TP2：Fib 6.92，平剩餘 50%
+                    qty_tp2 = round(filled_qty - qty_tp1, 4)
+                    r3 = bpost_auth("/openApi/swap/v2/trade/order", {
+                        "symbol": sym, "side": cside, "positionSide": ps,
+                        "type": "TAKE_PROFIT_MARKET", "stopPrice": tp1,
+                        "quantity": qty_tp2, "workingType": "MARK_PRICE",
+                    })
+                    if r3.get("code", -1) != 0:
+                        tp_msg += f" (TP2失敗:{r3.get('msg','')})"
+                    if tp_msg:
+                        rec["msg"] += tp_msg
                 else:
                     rec["msg"] = res.get("msg", str(res))
             except Exception as e:
