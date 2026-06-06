@@ -1165,6 +1165,8 @@ from datetime import datetime
 BINGX_MMR_BG    = 0.02   # 保守 MMR（涵蓋小幣）
 BINGX_MAX_LEV_BG = 125
 
+_bg_lock = threading.Lock()
+
 _bg = {
     "running":   False,
     "thread":    None,
@@ -1520,15 +1522,16 @@ def bg_trade_start():
     for k in ("loss_u","min_rr"):
         if k in d: s[k] = float(d[k])
 
-    if _bg["running"]:
-        return jsonify({"ok": True, "msg": "設定已更新（持續運行中）"})
+    with _bg_lock:
+        if _bg["running"]:
+            return jsonify({"ok": True, "msg": "設定已更新（持續運行中）"})
 
-    _bg["running"]   = True
-    _bg["run_count"] = 0
-    _bg["status"]    = "scanning"
-    t = threading.Thread(target=_bg_loop, daemon=True)
-    _bg["thread"] = t
-    t.start()
+        _bg["running"]   = True
+        _bg["run_count"] = 0
+        _bg["status"]    = "scanning"
+        t = threading.Thread(target=_bg_loop, daemon=True)
+        _bg["thread"] = t
+        t.start()
     return jsonify({"ok": True, "msg": "背景自動開單已啟動"})
 
 
