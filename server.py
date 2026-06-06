@@ -1481,28 +1481,32 @@ def _iv_to_minutes(iv_str):
 
 
 def _bg_loop():
-    while _bg["running"]:
-        run_log = _bg_run_once()
-        _bg["last_run"] = run_log["time"]
-        _bg["log"].insert(0, run_log)
-        _bg["log"] = _bg["log"][:BG_LOG_MAX]
-        _bg["run_count"] += 1
-        _save_bg_log()
+    try:
+        while _bg["running"]:
+            run_log = _bg_run_once()
+            _bg["last_run"] = run_log["time"]
+            _bg["log"].insert(0, run_log)
+            _bg["log"] = _bg["log"][:BG_LOG_MAX]
+            _bg["run_count"] += 1
+            _save_bg_log()
 
-        if not _bg["running"]:
-            break
+            if not _bg["running"]:
+                break
 
-        # 觸發間隔：優先用自訂值，0 = 依 K 線週期
-        custom = int(_bg["settings"].get("trigger_minutes", 0))
-        secs = (custom * 60) if custom > 0 else (_iv_to_minutes(_bg["settings"]["interval"]) * 60)
-        wake = time.time() + secs
-        _bg["next_run"] = datetime.fromtimestamp(wake).strftime("%H:%M:%S")
-        slept = 0
-        while slept < secs and _bg["running"]:
-            time.sleep(1); slept += 1
-
-    _bg["status"]   = "stopped"
-    _bg["next_run"] = None
+            # 觸發間隔：優先用自訂值，0 = 依 K 線週期
+            custom = int(_bg["settings"].get("trigger_minutes", 0))
+            secs = (custom * 60) if custom > 0 else (_iv_to_minutes(_bg["settings"]["interval"]) * 60)
+            wake = time.time() + secs
+            _bg["next_run"] = datetime.fromtimestamp(wake).strftime("%H:%M:%S")
+            slept = 0
+            while slept < secs and _bg["running"]:
+                time.sleep(1); slept += 1
+    except Exception as e:
+        print(f"[BG] _bg_loop 意外錯誤，執行緒終止: {traceback.format_exc()}")
+    finally:
+        _bg["running"]  = False
+        _bg["status"]   = "stopped"
+        _bg["next_run"] = None
 
 
 @app.route("/api/bg_trade/start", methods=["POST"])
