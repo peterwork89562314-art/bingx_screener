@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>快取組覽 — BingX Fib</title>
+<style>
+  :root{
+    --bg:#0f1117;--bg2:#161b27;--bg3:#1e2535;
+    --t1:#e8eaf0;--t2:#9ba3b8;--t3:#555f74;
+    --ac:#4f7fff;--g:#26a69a;--r:#ef5350;--gold:#f59e0b;
+    --b:#2a3348;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--bg);color:var(--t1);font-family:'Segoe UI',sans-serif;font-size:13px;display:flex;flex-direction:column}
+
+  /* 固定頂部 */
+  .hdr{flex-shrink:0;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--b);z-index:10}
+  .hdr h1{font-size:15px;font-weight:700;color:var(--ac)}
+  .hdr-right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--t3)}
+  .meta{flex-shrink:0;padding:7px 16px;font-size:11px;color:var(--t3);background:var(--bg2);border-bottom:1px solid var(--b)}
+
+  /* 可滾動表格區 */
+  .scroll{flex:1;overflow-y:auto;overflow-x:auto}
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl thead{position:sticky;top:0;z-index:5}
+  .tbl th{background:var(--bg3);color:var(--t3);font-size:11px;font-weight:600;text-transform:uppercase;padding:7px 12px;text-align:left;border-bottom:1px solid var(--b)}
+  .tbl td{padding:7px 12px;border-bottom:1px solid var(--b);color:var(--t2)}
+  .tbl tr:hover td{background:var(--bg2)}
+  .sym{font-weight:700;color:var(--t1)}
+  .long{color:var(--g)}
+  .short{color:var(--r)}
+  .age{color:var(--t3);font-size:11px}
+  .empty{padding:40px;text-align:center;color:var(--t3)}
+
+  #dot{width:8px;height:8px;border-radius:50%;background:var(--t3);display:inline-block;flex-shrink:0}
+  #dot.on{background:var(--g);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .search{background:var(--bg3);border:1px solid var(--b);color:var(--t1);padding:4px 10px;border-radius:5px;font-size:12px;outline:none;width:150px}
+  .search:focus{border-color:var(--ac)}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <span id="dot"></span>
+  <h1>快取組覽</h1>
+  <input class="search" id="search" placeholder="搜尋幣種..." oninput="render()">
+  <div class="hdr-right">
+    <span id="statusTxt">載入中...</span>
+    <a href="/" style="color:var(--ac);text-decoration:none">← 主頁</a>
+    <a href="/log" style="color:var(--gold);text-decoration:none">開單紀錄</a>
+  </div>
+</div>
+<div class="meta" id="meta">—</div>
+
+<div class="scroll">
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>幣種</th>
+        <th>方向</th>
+        <th>Fib 1.0（理想入場）</th>
+        <th>止損 SL</th>
+        <th>止盈 TP（6.92）</th>
+        <th>RR</th>
+        <th>快取時間</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+let _data = [];
+
+function fmtAge(sec){
+  if(sec < 60) return `${sec}s 前`;
+  if(sec < 3600) return `${Math.floor(sec/60)}m 前`;
+  return `${Math.floor(sec/3600)}h ${Math.floor((sec%3600)/60)}m 前`;
+}
+
+function render(){
+  const kw = (document.getElementById('search').value||'').toUpperCase();
+  const tbody = document.getElementById('tbody');
+  const rows = _data.filter(r => !kw || r.symbol.includes(kw));
+  if(!rows.length){
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">尚無快取組</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r=>`
+    <tr>
+      <td class="sym">${r.symbol.replace('-USDT','')}/USDT.P</td>
+      <td class="${r.side}">${r.side==='long'?'▲ 多':'▼ 空'}</td>
+      <td style="color:var(--ac)">${r.entry_fib1}</td>
+      <td style="color:var(--r)">${r.sl}</td>
+      <td style="color:var(--g)">${r.tp1}</td>
+      <td style="color:#a78bfa;font-weight:600">${r.rr}R</td>
+      <td class="age">${fmtAge(r.age_sec)}</td>
+    </tr>
+  `).join('');
+}
+
+async function fetchCache(){
+  try{
+    const [cd, sd] = await Promise.all([
+      fetch('/api/bg_cache').then(r=>r.json()),
+      fetch('/api/bg_trade/status').then(r=>r.json()),
+    ]);
+    _data = cd.setups || [];
+    const statusMap = {
+      stopped:'已停止', stopping:'停止中', full_scan:'全量掃描中',
+      scanning:'快取掃描中', waiting:'等待下一輪'
+    };
+    document.getElementById('dot').className = sd.running ? 'on' : '';
+    document.getElementById('statusTxt').textContent = statusMap[sd.status] || sd.status;
+    const scanTime = cd.last_scan_time ? `上次全量掃描：${cd.last_scan_time} UTC` : '尚未掃描';
+    document.getElementById('meta').textContent =
+      `共 ${cd.count} 組　｜　${scanTime}　｜　下次掃描：${sd.next_run || '—'}`;
+    render();
+  }catch(e){}
+}
+
+setInterval(fetchCache, 5000);
+fetchCache();
+</script>
+</body>
+</html>
