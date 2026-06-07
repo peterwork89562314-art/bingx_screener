@@ -1170,23 +1170,32 @@ _bg_lock = threading.Lock()
 _bg = {
     "running":   False,
     "thread":    None,
-    "status":    "stopped",   # stopped / scanning / waiting / stopping
+    "status":    "stopped",   # stopped / full_scan / scanning / waiting / stopping
     "settings":  {
-        "interval":        "15m",
-        "ma_period":       55,
-        "ma_type":         "SMA",
-        "scan_count":      150,
-        "filter_mode":     "chgrank",   # chgrank | volrank
-        "trigger_minutes": 0,   # 0 = 依 K 線週期自動
-        "loss_u":          10.0,
-        "max_trades":      15,
-        "min_rr":          4.0,
-        "max_margin_usdt": 30.0,        # 每筆保證金上限（0=不限）
+        "interval":             "30m",   # K 線週期（Fib 計算用）
+        "ma_period":            55,
+        "ma_type":              "SMA",
+        "scan_count":           150,
+        "filter_mode":          "chgrank",
+        "loss_u":               10.0,
+        "max_trades":           15,
+        "min_rr":               4.0,
+        "max_margin_usdt":      30.0,
+        "full_scan_minutes":    30,      # 全量掃描間隔（分鐘）
+        "cache_scan_minutes":   5,       # 快取掃描間隔（分鐘）
+        "entry_tolerance_pct":  3.0,     # 入場距 Fib 1.0 容忍 %
     },
-    "log":       [],   # 最新在前
+    "log":       [],
     "last_run":  None,
     "next_run":  None,
     "run_count": 0,
+}
+
+# 全量掃描結果快取
+_bg_cache = {
+    "setups":         {},    # {symbol: {entry_fib1, sl, tp1, tp_half, side, cached_at}}
+    "last_scan_time": None,
+    "count":          0,
 }
 BG_LOG_MAX  = 200
 BG_LOG_PATH = os.path.join(os.path.dirname(__file__), "bg_log.json")
@@ -1298,7 +1307,7 @@ def _bg_scan_sym(sym, iv, mp, mt):
         b9_risk = abs(fib1_p - sl_p)
         rr_ref  = abs(tp1_p - fib1_p) / b9_risk if b9_risk > 0 else 0
 
-        return {"symbol": sym, "rr_ref": rr_ref, "info": {
+        return {"symbol": sym, "rr_ref": rr_ref, "entry_fib1": round(fib1_p, 6), "info": {
             "entry": cur, "sl": sl_p, "tp1": tp1_p,
             "risk": risk, "rr": abs(tp1_p - cur) / risk, "isSh": isSh,
         }}
@@ -1306,51 +1315,110 @@ def _bg_scan_sym(sym, iv, mp, mt):
         return None
 
 
-def _bg_run_once():
-    """執行一輪掃描 + 開單，回傳 log dict"""
+def _bg_full_scan_only():
+    """全量掃描：找出所有符合 Fib 條件的幣，存入 _bg_cache。不開單。"""
     s       = _bg["settings"]
-    iv          = parse_iv(s["interval"])
-    mp          = int(s["ma_period"])
-    mt          = s["ma_type"]
-    count       = int(s["scan_count"])
-    loss_u      = float(s["loss_u"])
-    max_t       = int(s["max_trades"])
-    min_rr      = float(s["min_rr"])
-    fm          = s["filter_mode"]
-    max_margin  = float(s.get("max_margin_usdt", 0))
+    iv      = parse_iv(s["interval"])
+    mp      = int(s["ma_period"])
+    mt      = s["ma_type"]
+    count   = int(s["scan_count"])
+    fm      = s["filter_mode"]
+
+    try:
+        tickers = get_all_tickers()
+        if not tickers:
+            return
+        syms = sorted(tickers.keys(),
+                      key=lambda x: abs(tickers[x]["changePct"]) if fm == "chgrank"
+                                    else tickers[x]["quoteVol"],
+                      reverse=True)[:count]
+
+        with ThreadPoolExecutor(max_workers=30) as ex:
+            raw = list(ex.map(lambda sym: _bg_scan_sym(sym, iv, mp, mt), syms))
+
+        new_cache = {}
+        for r in raw:
+            if not r:
+                continue
+            sym      = r["symbol"]
+            info     = r["info"]
+            fib1_p   = r.get("entry_fib1", info["entry"])
+            tp1_p    = info["tp1"]
+            new_cache[sym] = {
+                "entry_fib1": fib1_p,
+                "sl":         info["sl"],
+                "tp1":        tp1_p,
+                "side":       "short" if info["isSh"] else "long",
+                "cached_at":  time.time(),
+            }
+
+        _bg_cache["setups"]         = new_cache
+        _bg_cache["last_scan_time"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        _bg_cache["count"]          = len(new_cache)
+        print(f"[BG] 全量掃描完成，快取 {len(new_cache)} 組")
+    except Exception:
+        print(f"[BG] 全量掃描錯誤: {traceback.format_exc()}")
+
+
+def _bg_cache_scan_once():
+    """快取掃描：用快取組的 Fib1.0 作為理想入場，檢查當前市價是否在容忍範圍內，符合則開單"""
+    s              = _bg["settings"]
+    loss_u         = float(s["loss_u"])
+    max_t          = int(s["max_trades"])
+    min_rr         = float(s["min_rr"])
+    max_margin     = float(s.get("max_margin_usdt", 0))
 
     log = {
         "time":     datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-        "scanned":  0, "found": 0, "traded": 0, "skipped": 0,
+        "type":     "cache",
+        "cached":   _bg_cache["count"],
+        "found": 0, "traded": 0, "skipped": 0,
         "trades":   [], "skipped_list": [], "error": None,
     }
 
     try:
         _bg["status"] = "scanning"
+        if not _bg_cache["setups"]:
+            return log
+
         tickers = get_all_tickers()
         if not tickers:
             log["error"] = "無法取得行情"; return log
 
-        syms = sorted(tickers.keys(),
-                      key=lambda s: abs(tickers[s]["changePct"]) if fm == "chgrank"
-                                    else tickers[s]["quoteVol"],
-                      reverse=True)[:count]
-        log["scanned"] = len(syms)
+        # 找出符合入場條件的候選
+        cands = []
+        for sym, setup in _bg_cache["setups"].items():
+            tk = tickers.get(sym)
+            if not tk:
+                continue
+            cur        = tk["lastPrice"]
+            entry_fib1 = setup["entry_fib1"]
+            sl_p       = setup["sl"]
+            tp1        = setup["tp1"]
+            isSh       = setup["side"] == "short"
 
-        # 平行掃描
-        with ThreadPoolExecutor(max_workers=30) as ex:
-            raw = list(ex.map(lambda s: _bg_scan_sym(s, iv, mp, mt), syms))
-        # min_rr 用 Fib 1.0（b9理論入場）過濾，與 modal 顯示一致
-        cands = [r for r in raw if r and (min_rr <= 0 or r["info"]["rr"] >= min_rr)]
+            # 方向確認
+            if not isSh and cur <= sl_p: continue
+            if     isSh and cur >= sl_p: continue
+
+            risk = abs(cur - sl_p)
+            if risk <= 0: continue
+            rr = abs(tp1 - cur) / risk
+            if min_rr > 0 and rr < min_rr:
+                continue
+
+            cands.append({"symbol": sym, "info": {
+                "entry": cur, "sl": sl_p, "tp1": tp1,
+                "risk": risk, "rr": rr, "isSh": isSh,
+            }})
+
         cands.sort(key=lambda c: c["info"]["rr"], reverse=True)
         log["found"] = len(cands)
-
         if not cands:
             return log
 
         open_pos = _bg_open_positions()
-        traded       = 0
-        used_margin  = 0.0
+        traded   = 0
 
         for cand in cands:
             if max_t > 0 and traded >= max_t:
@@ -1379,14 +1447,12 @@ def _bg_run_once():
             qty    = round(loss_u / risk, 4)
             margin = round((qty * entry) / max_lev, 4)
 
-            # 每筆保證金上限檢查
             if max_margin > 0 and margin > max_margin:
                 log["skipped"] += 1
                 log["skipped_list"].append({"symbol": sym, "reason": f"保證金 {margin:.1f}U > 上限 {max_margin}U"})
                 continue
 
-            # TP1 = entry 到 6.92 的一半距離（RR/2），平 50%
-            # TP2 = Fib 6.92，平剩餘 50%
+            # TP1 = 當前入場到 6.92 的中點（50%）；TP2 = Fib 6.92（剩餘 50%）
             tp_half = round((entry + tp1) / 2, 6)
 
             rec = {
@@ -1394,29 +1460,25 @@ def _bg_run_once():
                 "entry": round(entry, 6), "sl": round(sl_p, 6),
                 "tp1": tp_half, "tp2": round(tp1, 6), "leverage": max_lev,
                 "qty": qty, "margin": margin,
-                "rr": round(info["rr"], 2),   # 當前市價計算的 RR
+                "rr": round(info["rr"], 2),
                 "ok": False, "msg": "",
             }
 
             try:
-                # 設逐倉模式
                 bpost_auth("/openApi/swap/v2/trade/marginType",
                            {"symbol": sym, "marginType": "ISOLATED"})
 
-                # 設槓桿
                 lr = bpost_auth("/openApi/swap/v2/trade/leverage",
                                 {"symbol": sym, "side": ps, "leverage": max_lev})
                 ld = lr.get("data", {}) if isinstance(lr.get("data"), dict) else {}
                 applied = ld.get("leverage")
                 if applied:
-                    max_lev = int(applied)
-                    rec["leverage"] = max_lev
+                    max_lev = int(applied); rec["leverage"] = max_lev
                 elif lr.get("code", -1) != 0:
                     alt = ld.get("leverage")
                     if alt:
                         max_lev = int(alt); rec["leverage"] = max_lev
 
-                # 主單
                 ob = {
                     "symbol": sym, "side": oside, "positionSide": ps,
                     "type": "MARKET", "quantity": qty,
@@ -1427,14 +1489,14 @@ def _bg_run_once():
                     rec["ok"]  = True
                     rec["msg"] = "下單成功"
                     traded += 1
-                    used_margin += margin
                     open_pos.add(sym)
-                    # 用實際成交量送 TP（避免 BingX 持倉上限縮減後數量不符）
-                    order_data  = res.get("data", {}).get("order", {})
-                    filled_qty  = float(order_data.get("executedQty") or order_data.get("quantity") or qty)
+                    _bg_cache["setups"].pop(sym, None)   # 已開單，從快取移除
+
+                    order_data = res.get("data", {}).get("order", {})
+                    filled_qty = float(order_data.get("executedQty") or order_data.get("quantity") or qty)
                     if filled_qty <= 0:
                         filled_qty = qty
-                    # TP1：RR/2 位置，平 50%
+
                     qty_tp1 = round(filled_qty * 0.5, 4)
                     r2 = bpost_auth("/openApi/swap/v2/trade/order", {
                         "symbol": sym, "side": cside, "positionSide": ps,
@@ -1444,7 +1506,7 @@ def _bg_run_once():
                     tp_msg = ""
                     if r2.get("code", -1) != 0:
                         tp_msg += f" (TP1失敗:{r2.get('msg','')})"
-                    # TP2：Fib 6.92，平剩餘 50%
+
                     qty_tp2 = round(filled_qty - qty_tp1, 4)
                     r3 = bpost_auth("/openApi/swap/v2/trade/order", {
                         "symbol": sym, "side": cside, "positionSide": ps,
@@ -1465,7 +1527,7 @@ def _bg_run_once():
         log["traded"] = sum(1 for t in log["trades"] if t["ok"])
     except Exception as e:
         log["error"] = str(e)
-        print(f"[BG] 執行錯誤: {traceback.format_exc()}")
+        print(f"[BG] 快取掃描錯誤: {traceback.format_exc()}")
     finally:
         _bg["status"] = "waiting" if _bg["running"] else "stopped"
 
@@ -1484,8 +1546,21 @@ def _iv_to_minutes(iv_str):
 
 def _bg_loop():
     try:
+        last_full_scan_time = 0   # 從未掃描，確保一開始就執行全量掃描
+
         while _bg["running"]:
-            run_log = _bg_run_once()
+            now               = time.time()
+            full_secs         = int(_bg["settings"].get("full_scan_minutes", 30)) * 60
+            cache_secs        = int(_bg["settings"].get("cache_scan_minutes", 5))  * 60
+
+            # ── 全量掃描（每 full_scan_minutes 執行一次）────────────────
+            if now - last_full_scan_time >= full_secs:
+                _bg["status"] = "full_scan"
+                _bg_full_scan_only()
+                last_full_scan_time = time.time()
+
+            # ── 快取掃描（每輪都做）─────────────────────────────────────
+            run_log = _bg_cache_scan_once()
             _bg["last_run"] = run_log["time"]
             _bg["log"].insert(0, run_log)
             _bg["log"] = _bg["log"][:BG_LOG_MAX]
@@ -1495,16 +1570,15 @@ def _bg_loop():
             if not _bg["running"]:
                 break
 
-            # 觸發間隔：優先用自訂值，0 = 依 K 線週期
-            custom = int(_bg["settings"].get("trigger_minutes", 0))
-            secs = (custom * 60) if custom > 0 else (_iv_to_minutes(_bg["settings"]["interval"]) * 60)
-            wake = time.time() + secs
+            # ── 等待下一次快取掃描 ──────────────────────────────────────
+            wake = time.time() + cache_secs
             _bg["next_run"] = datetime.fromtimestamp(wake).strftime("%H:%M:%S")
             slept = 0
-            while slept < secs and _bg["running"]:
+            while slept < cache_secs and _bg["running"]:
                 time.sleep(1); slept += 1
+
     except Exception as e:
-        print(f"[BG] _bg_loop 意外錯誤，執行緒終止: {traceback.format_exc()}")
+        print(f"[BG] _bg_loop 意外錯誤: {traceback.format_exc()}")
     finally:
         _bg["running"]  = False
         _bg["status"]   = "stopped"
@@ -1517,9 +1591,9 @@ def bg_trade_start():
     s = _bg["settings"]
     for k in ("interval","ma_type","filter_mode"):
         if k in d: s[k] = d[k]
-    for k in ("ma_period","scan_count","trigger_minutes","max_trades"):
+    for k in ("ma_period","scan_count","max_trades","full_scan_minutes","cache_scan_minutes"):
         if k in d: s[k] = int(d[k])
-    for k in ("loss_u","min_rr"):
+    for k in ("loss_u","min_rr","max_margin_usdt","entry_tolerance_pct"):
         if k in d: s[k] = float(d[k])
 
     with _bg_lock:
@@ -1545,19 +1619,54 @@ def bg_trade_stop():
 @app.route("/api/bg_trade/status")
 def bg_trade_status():
     return jsonify({
-        "running":   _bg["running"],
-        "status":    _bg["status"],
-        "settings":  _bg["settings"],
-        "last_run":  _bg["last_run"],
-        "next_run":  _bg["next_run"],
-        "run_count": _bg["run_count"],
-        "log":       _bg["log"][:200],
+        "running":    _bg["running"],
+        "status":     _bg["status"],
+        "settings":   _bg["settings"],
+        "last_run":   _bg["last_run"],
+        "next_run":   _bg["next_run"],
+        "run_count":  _bg["run_count"],
+        "log":        _bg["log"][:200],
+        "cache":      {
+            "count":          _bg_cache["count"],
+            "last_scan_time": _bg_cache["last_scan_time"],
+        },
     })
 
 
 @app.route("/log")
 def trade_log_page():
     return render_template("log.html")
+
+@app.route("/cache")
+def cache_page():
+    return render_template("cache.html")
+
+@app.route("/api/bg_cache")
+def api_bg_cache():
+    now = time.time()
+    rows = []
+    for sym, s in _bg_cache["setups"].items():
+        age = int(now - s.get("cached_at", now))
+        entry_fib1 = s["entry_fib1"]
+        sl         = s["sl"]
+        tp1        = s["tp1"]
+        risk       = abs(entry_fib1 - sl)
+        rr         = round(abs(tp1 - entry_fib1) / risk, 2) if risk > 0 else 0
+        rows.append({
+            "symbol":     sym,
+            "side":       s["side"],
+            "entry_fib1": entry_fib1,
+            "sl":         sl,
+            "tp1":        tp1,
+            "rr":         rr,
+            "age_sec":    age,
+        })
+    rows.sort(key=lambda r: r["symbol"])
+    return jsonify({
+        "count":          _bg_cache["count"],
+        "last_scan_time": _bg_cache["last_scan_time"],
+        "setups":         rows,
+    })
 
 
 @app.route("/api/backtest_fib", methods=["GET","POST"])
