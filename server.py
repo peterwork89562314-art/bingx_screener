@@ -1825,4 +1825,124 @@ def backtest_fib():
 
         records = []
         with ThreadPoolExecutor(max_workers=6) as ex:
-            futures = [ex.submit(process_sym, s) for s in sym
+            futures = [ex.submit(process_sym, s) for s in symbols_data]
+            for f in as_completed(futures):
+                records.extend(f.result())
+
+        if not records:
+            return jsonify({"error": "沒有找到符合的 Fib 組", "totalGroups": 0})
+
+        # 套用最低 R:R 過濾（與前端 minRR 一致）
+        # 未開單（entry=None）和執行中（ongoing）保留；有結果的組才過濾
+        min_rr = float(d.get("minRR", 0))
+        if min_rr > 0:
+            records = [
+                r for r in records
+                if r.get("entry") is None                                                          # 未開單（b9未到）：保留
+                or (r.get("entry") is not None and r.get("ongoing")
+                    and (r.get("rr692") is None or r["rr692"] >= min_rr))                         # 執行中：也過濾 R:R
+                or (not r.get("ongoing") and r.get("rr692") is not None and r["rr692"] >= min_rr) # 有結果：過濾 R:R
+            ]
+
+        total      = len(records)
+        # 執行中 = 已進場且無任何結果；未開單 = b9 未到
+        cnt_exec   = sum(1 for r in records if r.get("entry") is not None and r.get("ongoing"))
+        cnt_unopen = sum(1 for r in records if r.get("entry") is None)
+        # 分母只算有明確結果的組（TP 或 SL），執行中/未開單不列入勝率
+        valid      = total - cnt_exec - cnt_unopen
+        cnt_tp1    = sum(1 for r in records if r["hitTP1"])
+        cnt_tp2    = sum(1 for r in records if r["hitTP2"])
+        cnt_tp3    = sum(1 for r in records if r["hitTP3"])
+        cnt_sl     = sum(1 for r in records if r["hitSL"])
+        rr692_list  = [r["rr692"]  for r in records if r.get("rr692")  is not None]
+        rr1211_list = [r["rr1211"] for r in records if r.get("rr1211") is not None]
+        rr1730_list = [r["rr1730"] for r in records if r.get("rr1730") is not None]
+        avg_rr692   = round(sum(rr692_list)  / len(rr692_list),  2) if rr692_list  else None
+        avg_rr1211  = round(sum(rr1211_list) / len(rr1211_list), 2) if rr1211_list else None
+        avg_rr1730  = round(sum(rr1730_list) / len(rr1730_list), 2) if rr1730_list else None
+
+        # 明細：依幣種分組，每幣種顯示所有組
+        sym_groups = {}
+        for r in records:
+            sym_groups.setdefault(r["symbol"], []).append(r)
+        detail_list = [
+            {"symbol": sym, "groups": grps}
+            for sym, grps in sorted(sym_groups.items())
+        ]
+
+        return jsonify({
+            "totalGroups":  total,
+            "validGroups":  valid,
+            "cntExec":      cnt_exec,
+            "cntUnopen":    cnt_unopen,
+            "cntTP1":       cnt_tp1,
+            "cntTP2":       cnt_tp2,
+            "cntTP3":       cnt_tp3,
+            "cntSL":        cnt_sl,
+            "avgRR692":     avg_rr692,
+            "avgRR1211":    avg_rr1211,
+            "avgRR1730":    avg_rr1730,
+            "symbolCount":  len(symbols_data),
+            "detail":       detail_list,
+        })
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("=== /api/backtest_fib ERROR ===")
+        print(tb)
+        return jsonify({"error": str(e), "traceback": tb}), 500
+
+
+@app.route("/api/tp2_watchers", methods=["GET"])
+def get_tp2_watchers():
+    """查詢所有 TP2 監控狀態"""
+    return jsonify(list(tp2_watchers.values()))
+
+@app.route("/api/tp2_watchers/<wid>/cancel", methods=["POST"])
+def cancel_tp2_watcher(wid):
+    """取消指定的 TP2 監控"""
+    if wid in tp2_watchers:
+        tp2_watchers[wid]["status"] = "cancelled"
+        return jsonify({"ok": True})
+    return jsonify({"error": "找不到此監控"}), 404
+
+_last_ping  = time.time()
+_scanning   = False   # 掃描進行中旗標（watchdog 保護）
+
+@app.route("/api/ping", methods=["POST"])
+def ping():
+    global _last_ping
+    _last_ping = time.time()
+    return jsonify({"ok": True})
+
+def _watchdog():
+    pass   # 已停用自動關閉，請手動 Ctrl+C 停止 server
+
+@app.route("/api/account_balance", methods=["GET"])
+def account_balance():
+    """查詢帳戶 USDT 餘額"""
+    try:
+        data = bget_auth("/openApi/swap/v2/user/balance", {"currency": "USDT"})
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── 啟動 ──────────────────────────────────────────────────────────────────────
+def open_browser():
+    time.sleep(1.3)
+    webbrowser.open("http://127.0.0.1:5678")
+
+if __name__ == "__main__":
+    is_dev = os.environ.get("ENV", "dev") != "production"
+    host   = "127.0.0.1" if is_dev else "0.0.0.0"
+    port   = int(os.environ.get("PORT", 5678))
+    print("=" * 50)
+    print("  BingX MA + Fib 篩選器")
+    print(f"  http://{host}:{port}")
+    print("  Ctrl+C 停止")
+    print("=" * 50)
+    if is_dev:
+        threading.Thread(target=open_browser, daemon=True).start()
+        threading.Thread(target=_watchdog, daemon=True).start()
+    app.run(host=host, port=port, debug=False)
