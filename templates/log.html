@@ -72,6 +72,7 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
     <span id="statusDot"></span>
     <span id="statusTxt">載入中...</span>
     <span id="runCount"></span>
+    <button onclick="fetchStatus()" style="padding:3px 10px;background:var(--bg3);border:1px solid var(--b);border-radius:4px;color:var(--ac);font-size:11px;cursor:pointer">↻ 更新</button>
     <a href="/" style="color:var(--ac);text-decoration:none;font-size:12px">← 返回主頁</a>
   </div>
 </div>
@@ -248,7 +249,6 @@ async function fetchStatus(){
   }catch(e){}
 }
 
-setInterval(fetchStatus, 5000);
 fetchStatus();
 </script>
 </body>

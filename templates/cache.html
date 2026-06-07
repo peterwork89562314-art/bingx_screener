@@ -49,6 +49,7 @@
   <input class="search" id="search" placeholder="搜尋幣種..." oninput="render()">
   <div class="hdr-right">
     <span id="statusTxt">載入中...</span>
+    <button onclick="fetchCache()" style="padding:3px 10px;background:var(--bg3);border:1px solid var(--b);border-radius:4px;color:var(--ac);font-size:11px;cursor:pointer">↻ 更新</button>
     <a href="/" style="color:var(--ac);text-decoration:none">← 主頁</a>
     <a href="/log" style="color:var(--gold);text-decoration:none">開單紀錄</a>
   </div>
@@ -122,7 +123,6 @@ async function fetchCache(){
   }catch(e){}
 }
 
-setInterval(fetchCache, 5000);
 fetchCache();
 </script>
 </body>
