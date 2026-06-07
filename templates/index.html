@@ -224,6 +224,7 @@ body{background:var(--bg);color:var(--t);font-family:-apple-system,'PingFang TC'
   <button class="bstat" id="autoTradeBtn" onclick="openAutoTradeModal()" style="background:rgba(38,166,154,.15);border-color:rgba(38,166,154,.5);color:#26a69a;display:none">🤖 自動開單</button>
   <button class="bstat" id="bgTradeBtn" onclick="openBgTradePanel()" style="background:rgba(79,127,255,.15);border-color:rgba(79,127,255,.5);color:#4f7fff">⚙ 背景開單</button>
   <a href="/log" target="_blank" class="bstat" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:var(--gold);text-decoration:none">📋 開單記錄</a>
+  <a href="/cache" target="_blank" class="bstat" style="background:rgba(38,166,154,.1);border-color:rgba(38,166,154,.4);color:var(--g);text-decoration:none">🗂 快取組</a>
 </div>
 
 <div class="fbar">
@@ -2308,6 +2309,7 @@ function utcTimeToLocal(timeStr){
 
 // ── 背景自動開單 ──────────────────────────────────────────────────────────────
 let _bgPollTimer = null;
+let _bgLastLogKey = '';   // 上次渲染的 log 特徵值，相同就不重繪
 
 function openBgTradePanel(){
   document.getElementById('bgOverlay').classList.add('open');
@@ -2328,7 +2330,9 @@ function bgStart(){
     loss_u:          parseFloat(document.getElementById('bgLossU').value),
     max_trades:      parseInt(document.getElementById('bgMaxTrades').value),
     min_rr:          parseFloat(document.getElementById('bgMinRR').value),
-    max_margin_usdt: parseFloat(document.getElementById('bgMaxMargin').value) || 0,
+    max_margin_usdt:      parseFloat(document.getElementById('bgMaxMargin').value) || 0,
+    full_scan_minutes:    parseInt(document.getElementById('bgFullScanMin').value) || 30,
+    cache_scan_minutes:   parseInt(document.getElementById('bgCacheScanMin').value) || 5,
   };
   fetch('/api/bg_trade/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(r=>r.json()).then(d=>{
@@ -2347,10 +2351,11 @@ function bgPollStatus(){
     const dot = document.getElementById('bgDot');
     const txt = document.getElementById('bgStatusTxt');
     const statusMap = {
-      stopped:  ['var(--t3)',  '已停止'],
-      stopping: ['var(--r)',   '停止中...'],
-      scanning: ['var(--gold)','掃描中...'],
-      waiting:  ['var(--g)',   '等待下一輪'],
+      stopped:   ['var(--t3)',  '已停止'],
+      stopping:  ['var(--r)',   '停止中...'],
+      full_scan: ['var(--ac)',  '全量掃描中...'],
+      scanning:  ['var(--gold)','快取掃描中...'],
+      waiting:   ['var(--g)',   '等待下一輪'],
     };
     const [clr, label] = statusMap[d.status] || ['var(--t3)', d.status];
     dot.style.background = clr;
@@ -2361,6 +2366,9 @@ function bgPollStatus(){
 
     const nr = document.getElementById('bgNextRun');
     nr.textContent = d.next_run ? `下次 ${utcTimeToLocal(d.next_run)}` : '';
+
+    const cc = document.getElementById('bgCacheCount');
+    if(cc && d.cache) cc.textContent = d.cache.count ? `快取 ${d.cache.count} 組` : '';
 
     // 按鈕狀態
     document.getElementById('bgStartBtn').textContent = d.running ? '🔄 更新設定' : '▶ 啟動背景開單';
@@ -2380,7 +2388,9 @@ function bgPollStatus(){
       document.getElementById('bgLossU').value       = s.loss_u || 10;
       document.getElementById('bgMaxTrades').value   = s.max_trades || 5;
       document.getElementById('bgMinRR').value       = s.min_rr || 0;
-      document.getElementById('bgMaxMargin').value   = s.max_margin_usdt ?? 30;
+      document.getElementById('bgMaxMargin').value    = s.max_margin_usdt ?? 30;
+      document.getElementById('bgFullScanMin').value  = s.full_scan_minutes ?? 30;
+      document.getElementById('bgCacheScanMin').value = s.cache_scan_minutes ?? 5;
     }
 
     // 渲染 log
@@ -2461,6 +2471,7 @@ document.getElementById('bgOverlay').addEventListener('click', ()=>{});
     <div id="bgStatus" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border-radius:6px;margin-bottom:12px;font-size:12px">
       <span id="bgDot" style="width:8px;height:8px;border-radius:50%;background:var(--t3);flex-shrink:0"></span>
       <span id="bgStatusTxt" style="color:var(--t2)">已停止</span>
+      <span id="bgCacheCount" style="color:var(--ac);font-size:11px"></span>
       <span style="margin-left:auto;color:var(--t3)" id="bgRunCount"></span>
       <span id="bgNextRun" style="color:var(--gold)"></span>
     </div>
@@ -2490,14 +2501,20 @@ document.getElementById('bgOverlay').addEventListener('click', ()=>{});
       <div class="cg"><label>每筆損失上限（U）</label>
         <input id="bgLossU" type="number" value="10" min="1" step="0.5" style="width:100%">
       </div>
+      <div class="cg"><label>每筆保證金上限（U，0=不限）</label>
+        <input id="bgMaxMargin" type="number" value="30" min="0" step="10" style="width:100%">
+      </div>
       <div class="cg"><label>每輪最多開單筆數</label>
         <input id="bgMaxTrades" type="number" value="15" min="1" max="100" style="width:100%">
       </div>
       <div class="cg"><label>最低 R:R（0=不限）</label>
         <input id="bgMinRR" type="number" value="4" min="0" step="0.5" style="width:100%">
       </div>
-      <div class="cg"><label>每筆保證金上限（U，0=不限）</label>
-        <input id="bgMaxMargin" type="number" value="30" min="0" step="10" style="width:100%">
+      <div class="cg"><label>全量掃描間隔（分鐘）</label>
+        <input id="bgFullScanMin" type="number" value="30" min="5" max="1440" style="width:100%">
+      </div>
+      <div class="cg"><label>快取掃描間隔（分鐘）</label>
+        <input id="bgCacheScanMin" type="number" value="5" min="1" max="60" style="width:100%">
       </div>
     </div>
 
@@ -2510,6 +2527,11 @@ document.getElementById('bgOverlay').addEventListener('click', ()=>{});
       <button id="bgStopBtn" onclick="bgStop()"
         style="flex:1;padding:9px;background:var(--bg3);border:1px solid var(--b2);border-radius:6px;color:var(--t2);font-size:13px;cursor:pointer">
         ■ 停止
+      </button>
+      <button onclick="window.open('/cache','_blank')"
+        style="padding:9px 14px;background:var(--bg3);border:1px solid var(--b2);border-radius:6px;color:var(--ac);font-size:13px;cursor:pointer"
+        title="查看快取組">
+        📋 快取
       </button>
     </div>
 
