@@ -1323,6 +1323,7 @@ def _bg_full_scan_only():
     mt      = s["ma_type"]
     count   = int(s["scan_count"])
     fm      = s["filter_mode"]
+    min_rr  = float(s["min_rr"])
 
     try:
         tickers = get_all_tickers()
@@ -1344,9 +1345,17 @@ def _bg_full_scan_only():
             info     = r["info"]
             fib1_p   = r.get("entry_fib1", info["entry"])
             tp1_p    = info["tp1"]
+            sl_p     = info["sl"]
+
+            # 用 Fib 1.0 理論 RR 過濾，低於設定值不快取
+            risk_fib1 = abs(fib1_p - sl_p)
+            rr_fib1   = abs(tp1_p - fib1_p) / risk_fib1 if risk_fib1 > 0 else 0
+            if min_rr > 0 and rr_fib1 < min_rr:
+                continue
+
             new_cache[sym] = {
                 "entry_fib1": fib1_p,
-                "sl":         info["sl"],
+                "sl":         sl_p,
                 "tp1":        tp1_p,
                 "side":       "short" if info["isSh"] else "long",
                 "cached_at":  time.time(),
