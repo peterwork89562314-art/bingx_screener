@@ -1622,6 +1622,9 @@ def bg_trade_start():
 def bg_trade_stop():
     _bg["running"] = False
     _bg["status"]  = "stopping"
+    _bg_cache["setups"]         = {}
+    _bg_cache["count"]          = 0
+    _bg_cache["last_scan_time"] = None
     return jsonify({"ok": True, "msg": "停止中（本輪執行完後停止）"})
 
 
