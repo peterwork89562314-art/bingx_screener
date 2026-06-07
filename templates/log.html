@@ -218,19 +218,33 @@ function openRound(id){
   if(ch){ ch.classList.add('open'); }
 }
 
+let _lastLogKey = '';
+let _lastStatus = '';
+
 async function fetchStatus(){
   try{
     const d = await fetch('/api/bg_trade/status').then(r=>r.json());
-    _log = d.log || [];
 
-    const dot = document.getElementById('statusDot');
-    const statusMap = {stopped:['','已停止'],stopping:['','停止中'],scanning:['on','掃描中'],waiting:['on','等待下一輪']};
-    const [cls,lbl] = statusMap[d.status]||['',''];
-    dot.className = cls;
-    document.getElementById('statusTxt').textContent = lbl;
-    document.getElementById('runCount').textContent = d.run_count ? `已執行 ${d.run_count} 次` : '';
+    // 狀態列只在變動時更新
+    const newStatus = d.status + d.run_count;
+    if(newStatus !== _lastStatus){
+      _lastStatus = newStatus;
+      const dot = document.getElementById('statusDot');
+      const statusMap = {stopped:['','已停止'],stopping:['','停止中'],full_scan:['on','全量掃描中'],scanning:['on','掃描中'],waiting:['on','等待下一輪']};
+      const [cls,lbl] = statusMap[d.status]||['',''];
+      dot.className = cls;
+      document.getElementById('statusTxt').textContent = lbl;
+      document.getElementById('runCount').textContent = d.run_count ? `已執行 ${d.run_count} 次` : '';
+    }
 
-    renderLog();
+    // log 只在內容變動時重繪
+    const newLog = d.log || [];
+    const newKey = JSON.stringify(newLog.slice(0,3).map(r=>r.time+r.traded));
+    if(newKey !== _lastLogKey){
+      _lastLogKey = newKey;
+      _log = newLog;
+      renderLog();
+    }
   }catch(e){}
 }
 
